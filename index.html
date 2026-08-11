@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文献检索 - 无负极钠电池</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:700px;margin:0 auto;padding:15px;background:#fff;color:#333}
+h2{text-align:center;margin:10px 0 20px;font-size:20px}
+#searchBox{display:flex;gap:8px;margin-bottom:15px}
+#q{flex:1;padding:12px;font-size:16px;border:2px solid #ddd;border-radius:8px;outline:none}
+#q:focus{border-color:#4a90d9}
+button{padding:12px 20px;font-size:16px;background:#4a90d9;color:#fff;border:none;border-radius:8px;cursor:pointer}
+button:disabled{background:#aaa}
+#status{text-align:center;color:#888;margin:10px 0;font-size:14px}
+.result{margin:12px 0;padding:12px;background:#f8f9fa;border-radius:8px;border-left:3px solid #4a90d9}
+.result .rank{font-weight:bold;color:#4a90d9}
+.result .text{font-size:14px;line-height:1.6;margin-top:5px}
+.result .score{font-size:12px;color:#999}
+</style>
+</head>
+<body>
+<h2>无负极钠电池文献检索</h2>
+<div id="searchBox">
+  <input id="q" placeholder="输入检索问题（如：碳基集流体亲钠策略）" onkeydown="if(event.key==='Enter')search()">
+  <button id="btn" onclick="search()">搜索</button>
+</div>
+<div id="status">加载模型中...（首次约需下载 100MB，之后浏览器缓存）</div>
+<div id="results"></div>
+
+<script src="vectors.js"></script>
+<script type="module">
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js';
+
+// 使用 ONNX 量化版 bge-small-zh-v1.5
+env.allowLocalModels = false;
+env.useBrowserCache = true;
+
+let embedder = null;
+const statusEl = document.getElementById('status');
+const btn = document.getElementById('btn');
+
+// 预计算向量的模长
+const VEC_NORMS = window.VECTORS.map(v => Math.sqrt(v.reduce((s,x)=>s+x*x, 0)));
+
+async function init() {
+  try {
+    statusEl.textContent = '加载嵌入模型中...（首次约需下载 100MB，之后读取缓存）';
+    embedder = await pipeline('feature-extraction', 'Xenova/bge-small-zh-v1.5');
+    statusEl.textContent = `就绪：${window.VECTORS.length} 个文献片段可检索`;
+    btn.disabled = false;
+  } catch(e) {
+    statusEl.textContent = '模型加载失败：' + e.message + '。请刷新重试。';
+    console.error(e);
+  }
+}
+
+window.search = async function() {
+  const q = document.getElementById('q').value.trim();
+  if (!q || !embedder) return;
+
+  statusEl.textContent = '检索中...';
+  btn.disabled = true;
+
+  try {
+    // 嵌入查询
+    const output = await embedder(q, { pooling: 'cls', normalize: true });
+    const qVec = Array.from(output.data);
+
+    // 余弦相似度计算
+    const scores = [];
+    for (let i = 0; i < window.VECTORS.length; i++) {
+      const v = window.VECTORS[i];
+      let dot = 0;
+      for (let j = 0; j < qVec.length; j++) dot += qVec[j] * v[j];
+      scores.push({ idx: i, score: dot / (1.0 * VEC_NORMS[i]) });
+    }
+
+    // 排序取 top-5
+    scores.sort((a, b) => b.score - a.score);
+    const top = scores.slice(0, 5);
+
+    // 渲染
+    let html = '';
+    top.forEach((s, rank) => {
+      html += `<div class="result">
+        <span class="rank">#${rank+1}</span>
+        <span class="score">(相似度: ${(s.score*100).toFixed(1)}%)</span>
+        <div class="text">${window.DOCUMENTS[s.idx]}</div>
+      </div>`;
+    });
+    document.getElementById('results').innerHTML = html || '无结果';
+    statusEl.textContent = `检索完成`;
+  } catch(e) {
+    statusEl.textContent = '检索失败：' + e.message;
+  }
+  btn.disabled = false;
+};
+
+// 启动
+init();
+</script>
+</body>
+</html>

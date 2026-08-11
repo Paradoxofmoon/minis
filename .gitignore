@@ -1,15 +1,5 @@
-# Build
-/build/
-/app/build/
-*.apk
-*.aab
-
-# IDE
-.idea/
-*.iml
-.gradle/
-local.properties
-
-# OS
-.DS_Store
-Thumbs.db
+__pycache__/
+*.pyc
+.venv/
+.env
+chroma_db/
