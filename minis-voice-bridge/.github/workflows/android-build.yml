@@ -2,12 +2,16 @@ name: Android Build
 
 on:
   push:
-    branches: [main]
+    paths:
+      - 'minis-voice-bridge/**'
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: minis-voice-bridge
     steps:
       - uses: actions/checkout@v4
 
@@ -24,4 +28,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: voice-bridge-release
-          path: app/build/outputs/apk/release/*.apk
+          path: minis-voice-bridge/app/build/outputs/apk/release/*.apk
