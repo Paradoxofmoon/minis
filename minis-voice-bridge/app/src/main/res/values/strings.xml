@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Minis Voice Bridge</string>
+    <string name="assistant_service_label">Minis 语音助手</string>
+</resources>
