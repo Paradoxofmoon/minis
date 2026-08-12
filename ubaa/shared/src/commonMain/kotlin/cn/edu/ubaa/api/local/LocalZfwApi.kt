@@ -8,6 +8,7 @@ import cn.edu.ubaa.api.feature.ZfwLoginResult
 import cn.edu.ubaa.api.network.DebugFileSink
 import cn.edu.ubaa.api.network.platformLog
 import cn.edu.ubaa.api.plantform.PlatformRsaPkcs1Encrypt
+import cn.edu.ubaa.model.dto.TrafficData
 import cn.edu.ubaa.model.dto.ZfwValidateResponse
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -138,6 +139,113 @@ internal class LocalZfwApiBackend : ZfwApiBackend {
     } catch (e: Exception) {
       Result.failure(e.toUserFacingApiException("校园网充值登录失败，请稍后重试"))
     }
+  }
+
+  override suspend fun getTraffic(): Result<TrafficData> {
+    val client = sessionClient
+    if (client == null) {
+      return Result.failure(ApiCallException("请先登录校园网自助服务门户"))
+    }
+
+    return try {
+      val response =
+          client.get(localUpstreamUrl(ZFW_BASE_URL)) {
+            header(
+                HttpHeaders.Accept,
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+          }
+      if (response.status != HttpStatusCode.OK) {
+        return Result.failure(
+            localBusinessApiException(
+                "zfw_traffic_error",
+                "流量查询失败，请稍后重试",
+                response.status,
+            )
+        )
+      }
+
+      val html = response.bodyAsText()
+      DebugFileSink.write("zfw_traffic.html", html)
+
+      if (isLoginPage(html)) {
+        // 会话已失效，需要重新登录
+        return Result.failure(ApiCallException("登录已过期，请重新登录"))
+      }
+
+      Result.success(extractTrafficData(html))
+    } catch (e: Exception) {
+      if (e is ApiCallException) {
+        Result.failure(e)
+      } else {
+        Result.failure(e.toUserFacingApiException("校园网流量查询失败，请稍后重试"))
+      }
+    }
+  }
+
+  /**
+   * 从首页 HTML 的"产品信息"表格中提取流量数据。
+   *
+   * 表格列结构（data-col-seq）：
+   * 1=产品名称, 2=计费策略, 3=已用流量, 4=已用时长, 6=免费流量剩余(不含套餐),
+   * 7=计费流量剩余(不含套餐), 12=结算日期
+   */
+  private fun extractTrafficData(html: String): TrafficData {
+    val tableMatch = PRODUCT_TABLE_REGEX.find(html)
+    if (tableMatch == null) {
+      throw ApiCallException("未找到流量数据表格，页面结构可能已变更")
+    }
+    val tableHtml = tableMatch.value
+
+    // 提取"套餐详情"展开行的 tbody（data-key 行是实际数据行）
+    val rowMatch = PRODUCT_ROW_REGEX.find(tableHtml)
+    if (rowMatch == null) {
+      throw ApiCallException("未找到流量数据行，页面结构可能已变更")
+    }
+    val rowHtml = rowMatch.value
+
+    fun cell(seq: Int): String {
+      val cellRegex =
+          Regex(
+              """<td[^>]*data-col-seq=["']${seq}["'][^>]*>([\s\S]*?)</td>""",
+              RegexOption.IGNORE_CASE,
+          )
+      return cellRegex.find(rowHtml)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+    }
+
+    val usedRaw = cell(3) // 已用流量
+    val usedSecondsRaw = cell(4) // 已用时长
+    val freeRemainingRaw = cell(6) // 免费流量剩余
+    val paidRemainingRaw = cell(7) // 计费流量剩余
+    val settleDateRaw = cell(12) // 结算日期
+    val billingPolicyRaw = cell(2) // 计费策略
+
+    return TrafficData(
+        usedTraffic = parseGb(usedRaw),
+        usedSeconds = parseSeconds(usedSecondsRaw),
+        freeTrafficRemaining = parseGb(freeRemainingRaw) ?: 0.0,
+        paidTrafficRemaining = parseGb(paidRemainingRaw),
+        settleDate = settleDateRaw.takeIf { it.isNotBlank() },
+        billingPolicy = billingPolicyRaw.takeIf { it.isNotBlank() },
+    )
+  }
+
+  /** 解析形如 "70.000G"、"0byte"、"1.5G" 的流量值，返回 GB。 */
+  private fun parseGb(raw: String): Double? {
+    if (raw.isBlank()) return null
+    val match = GB_REGEX.find(raw) ?: return null
+    return match.groupValues[1].toDoubleOrNull()
+  }
+
+  /** 解析形如 "0秒"、"1小时23分45秒" 的时长，返回秒。 */
+  private fun parseSeconds(raw: String): Long? {
+    if (raw.isBlank()) return null
+    if (raw == "0秒") return 0L
+    var total = 0L
+    HOUR_REGEX.find(raw)?.let { m -> total += (m.groupValues[1].toLongOrNull() ?: 0L) * 3600 }
+    MINUTE_REGEX.find(raw)?.let { m -> total += (m.groupValues[1].toLongOrNull() ?: 0L) * 60 }
+    SECOND_REGEX.find(raw)?.let { m -> total += m.groupValues[1].toLongOrNull() ?: 0L }
+    return total
   }
 
   private suspend fun fetchLoginPage(client: HttpClient): LoginPageData {
@@ -361,6 +469,25 @@ internal class LocalZfwApiBackend : ZfwApiBackend {
         Regex("""<img[^>]*id=["']loginform-verifycode-image["'][^>]*src=["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
     private val RSA_PUBLIC_KEY_REGEX =
         Regex("""<input[^>]*id=["']public["'][^>]*value=["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
+
+    // 流量解析相关正则
+    /**
+     * 匹配"产品信息"表格——即包含"免费流量剩余"表头的那个 table。
+     * 首页有多个 kv-grid-table（在线信息表、产品信息表），必须精确定位产品信息表。
+     */
+    private val PRODUCT_TABLE_REGEX =
+        Regex(
+            """<table[^>]*class=["'][^"']*kv-grid-table[^"']*["'][^>]*>[\s\S]*?免费流量剩余[\s\S]*?</table>""",
+            RegexOption.IGNORE_CASE,
+        )
+    /** 匹配表格中带 data-key 的实际数据行。 */
+    private val PRODUCT_ROW_REGEX =
+        Regex("""<tr[^>]*data-key=["'][^"']+["'][^>]*>[\s\S]*?</tr>""", RegexOption.IGNORE_CASE)
+    /** 匹配流量数值，"70.000G"、"0byte" 等。 */
+    private val GB_REGEX = Regex("""(\d+(?:\.\d+)?)\s*[Gg]""", RegexOption.IGNORE_CASE)
+    private val HOUR_REGEX = Regex("""(\d+)\s*小时""")
+    private val MINUTE_REGEX = Regex("""(\d+)\s*分""")
+    private val SECOND_REGEX = Regex("""(\d+)\s*秒""")
 
     private const val RSA_PUBLIC_KEY_PEM =
         """-----BEGIN PUBLIC KEY-----

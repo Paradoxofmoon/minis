@@ -2,7 +2,7 @@ package cn.edu.ubaa.ui.screens.network
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import cn.edu.ubaa.api.feature.NetworkApi
+import cn.edu.ubaa.api.feature.ZfwApi
 import cn.edu.ubaa.model.dto.TrafficData
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,11 +15,13 @@ data class NetworkUiState(
     val isRefreshing: Boolean = false,
     val trafficData: TrafficData = TrafficData(),
     val error: String? = null,
+    /** 是否因未登录深澜门户而需要先登录（跳转到充值页登录）。 */
+    val needsZfwLogin: Boolean = false,
 )
 
-/** 校园网流量查询的 ViewModel。 */
+/** 校园网流量查询的 ViewModel（数据源为深澜自助服务门户 zfw.buaa.edu.cn）。 */
 class NetworkViewModel(
-    private val networkApi: NetworkApi = NetworkApi(),
+    private val zfwApi: ZfwApi = ZfwApi(),
 ) : ViewModel() {
   private var loadedOnce = false
 
@@ -54,7 +56,7 @@ class NetworkViewModel(
               error = null,
           )
 
-      networkApi
+      zfwApi
           .getTraffic()
           .onSuccess { data ->
             _state.value =
@@ -63,14 +65,20 @@ class NetworkViewModel(
                     isRefreshing = false,
                     trafficData = data,
                     error = null,
+                    needsZfwLogin = false,
                 )
           }
           .onFailure { error ->
+            val message = error.message ?: "加载校园网流量失败"
+            // 未登录/会话过期时提示先去充值页登录
+            val needsLogin =
+                message.contains("登录") || message.contains("会话") || message.contains("过期")
             _state.value =
                 _state.value.copy(
                     isLoading = false,
                     isRefreshing = false,
-                    error = error.message ?: "加载校园网流量失败",
+                    error = if (needsLogin) "请先在「校园网充值」中登录，再查询流量" else message,
+                    needsZfwLogin = needsLogin,
                 )
           }
     }
@@ -86,6 +94,9 @@ class NetworkViewModel(
         freeTrafficRemaining > 0.0 ||
         giftTrafficTotal != null ||
         giftTrafficRemaining != null ||
-        paidTraffic != null
+        paidTraffic != null ||
+        paidTrafficRemaining != null ||
+        usedTraffic != null ||
+        settleDate != null
   }
 }

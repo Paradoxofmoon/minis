@@ -24,7 +24,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -94,28 +93,40 @@ fun NetworkScreen(
         else -> {
           item {
             FreeTrafficCard(
-                total = uiState.trafficData.freeTrafficTotal,
                 remaining = uiState.trafficData.freeTrafficRemaining,
+                usedTraffic = uiState.trafficData.usedTraffic,
+                billingPolicy = uiState.trafficData.billingPolicy,
             )
           }
 
-          uiState.trafficData.giftTrafficTotal?.let { total ->
+          uiState.trafficData.paidTrafficRemaining?.let { remaining ->
             item {
               TrafficInfoCard(
-                  title = "赠送流量",
-                  subtitle = "剩余 ${formatGb(uiState.trafficData.giftTrafficRemaining ?: 0.0)} / 总额 ${formatGb(total)}",
-                  icon = Icons.Default.CardGiftcard,
+                  title = "计费流量剩余",
+                  subtitle = "剩余 ${formatGb(remaining)}（不含套餐）",
+                  icon = Icons.Default.Paid,
                   isSecondary = true,
               )
             }
           }
 
-          uiState.trafficData.paidTraffic?.let { paid ->
+          uiState.trafficData.usedSeconds?.let { seconds ->
             item {
               TrafficInfoCard(
-                  title = "计费流量",
-                  subtitle = "${formatGb(paid)}",
+                  title = "已用时长",
+                  subtitle = formatSeconds(seconds),
                   icon = Icons.Default.Paid,
+                  isSecondary = true,
+              )
+            }
+          }
+
+          uiState.trafficData.settleDate?.let { date ->
+            item {
+              TrafficInfoCard(
+                  title = "结算日期",
+                  subtitle = date,
+                  icon = Icons.Default.CardGiftcard,
                   isSecondary = true,
               )
             }
@@ -136,13 +147,11 @@ fun NetworkScreen(
 
 @Composable
 private fun FreeTrafficCard(
-    total: Double,
     remaining: Double,
+    usedTraffic: Double?,
+    billingPolicy: String?,
     modifier: Modifier = Modifier,
 ) {
-  val used = (total - remaining).coerceAtLeast(0.0)
-  val progress = if (total > 0) (used / total).toFloat().coerceIn(0f, 1f) else 0f
-
   Card(
       modifier = modifier.fillMaxWidth(),
       colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -164,43 +173,35 @@ private fun FreeTrafficCard(
             tint = MaterialTheme.colorScheme.primary,
         )
         Text(
-            text = "免费流量",
+            text = "免费流量剩余",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.Medium,
         )
       }
 
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier.fillMaxWidth().height(8.dp),
-            color = MaterialTheme.colorScheme.primary,
-            trackColor = MaterialTheme.colorScheme.surfaceVariant,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-          Text(
-              text = "已用 ${formatGb(used)}",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-          Text(
-              text = "总额 ${formatGb(total)}",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
-      }
-
       Text(
-          text = "${formatGb(remaining)} 剩余",
+          text = formatGb(remaining),
           style = MaterialTheme.typography.headlineLarge.copy(fontSize = 28.sp),
           fontWeight = FontWeight.Bold,
           color = MaterialTheme.colorScheme.onSurface,
       )
+
+      usedTraffic?.let { used ->
+        Text(
+            text = "已用 ${formatGb(used)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+
+      billingPolicy?.let { policy ->
+        Text(
+            text = policy,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
     }
   }
 }
@@ -263,4 +264,16 @@ private fun formatGb(value: Double): String {
   val whole = scaled / 100
   val fraction = kotlin.math.abs(scaled % 100)
   return "$whole.${fraction.toString().padStart(2, '0')} GB"
+}
+
+private fun formatSeconds(value: Long): String {
+  if (value <= 0) return "0秒"
+  val hours = value / 3600
+  val minutes = (value % 3600) / 60
+  val seconds = value % 60
+  return buildString {
+    if (hours > 0) append("${hours}小时")
+    if (minutes > 0) append("${minutes}分")
+    if (seconds > 0 || (hours == 0L && minutes == 0L)) append("${seconds}秒")
+  }
 }

@@ -3,6 +3,7 @@ package cn.edu.ubaa.api.feature
 import cn.edu.ubaa.api.ConnectionRuntime
 import cn.edu.ubaa.api.auth.ApiClientProvider
 import cn.edu.ubaa.api.core.ApiClient
+import cn.edu.ubaa.model.dto.TrafficData
 import io.ktor.http.Cookie
 
 /** 校园网自助服务门户（zfw.buaa.edu.cn）登录结果。 */
@@ -34,6 +35,13 @@ interface ZfwApiBackend {
       captcha: String,
       smsCode: String? = null,
   ): Result<ZfwLoginResult>
+
+  /**
+   * 查询当前账号的校园网流量信息。
+   *
+   * 需在 [login] 成功后调用（复用登录会话）。返回首页"产品信息"中的流量数据。
+   */
+  suspend fun getTraffic(): Result<TrafficData>
 }
 
 /** 校园网充值 API 服务入口。 根据当前连接模式自动选择直连、WebVPN 或中继后端。 */
@@ -61,6 +69,9 @@ class ZfwApi(
       smsCode: String? = null,
   ): Result<ZfwLoginResult> =
       currentBackend().login(username, password, captcha, smsCode)
+
+  /** 查询校园网流量，需在 [login] 成功后调用。 */
+  suspend fun getTraffic(): Result<TrafficData> = currentBackend().getTraffic()
 }
 
 internal class RelayZfwApiBackend(
@@ -79,6 +90,12 @@ internal class RelayZfwApiBackend(
     // TODO: 实现 SERVER_RELAY 模式下的校园网充值登录中继接口
     return Result.failure(
         NotImplementedError("SERVER_RELAY 模式下校园网充值登录尚未实现")
+    )
+  }
+
+  override suspend fun getTraffic(): Result<TrafficData> {
+    return Result.failure(
+        NotImplementedError("SERVER_RELAY 模式下校园网流量查询尚未实现")
     )
   }
 }
