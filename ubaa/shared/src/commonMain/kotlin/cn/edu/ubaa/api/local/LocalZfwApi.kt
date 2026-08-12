@@ -609,8 +609,9 @@ internal class LocalZfwApiBackend : ZfwApiBackend {
     ) {
       return false
     }
+    // 只认登录页独有的特征：登录表单和登录验证码。
+    // 注意：csrf-param 登录页和已登录页都有，不能作为判断依据，否则已登录的 /pays 页会被误判为登录页。
     return html.contains("id=\"login-form\"") ||
-        html.contains("name=\"csrf-param\"") ||
         html.contains("id=\"loginform-verifycode-image\"")
   }
 
