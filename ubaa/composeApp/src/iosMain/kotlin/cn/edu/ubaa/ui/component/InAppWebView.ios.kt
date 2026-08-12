@@ -1,0 +1,20 @@
+package cn.edu.ubaa.ui.component
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
+import platform.Foundation.NSURL
+import platform.UIKit.UIApplication
+
+@Composable
+actual fun InAppWebView(
+    url: String,
+    modifier: Modifier,
+    injectJsOnLoad: String?,
+    cookies: List<String>,
+) {
+    LaunchedEffect(url) {
+        val nsUrl = NSURL.URLWithString(url) ?: return@LaunchedEffect
+        UIApplication.sharedApplication.openURL(nsUrl)
+    }
+}

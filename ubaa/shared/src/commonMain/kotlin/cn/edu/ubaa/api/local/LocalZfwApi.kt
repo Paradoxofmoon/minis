@@ -1,0 +1,373 @@
+package cn.edu.ubaa.api.local
+
+import cn.edu.ubaa.api.auth.ApiCallException
+import cn.edu.ubaa.api.auth.toUserFacingApiException
+import cn.edu.ubaa.api.auth.userFacingMessageForCode
+import cn.edu.ubaa.api.feature.ZfwApiBackend
+import cn.edu.ubaa.api.feature.ZfwLoginResult
+import cn.edu.ubaa.api.network.DebugFileSink
+import cn.edu.ubaa.api.network.platformLog
+import cn.edu.ubaa.api.plantform.PlatformRsaPkcs1Encrypt
+import cn.edu.ubaa.model.dto.ZfwValidateResponse
+import io.ktor.client.HttpClient
+import io.ktor.client.call.body
+import io.ktor.client.plugins.cookies.AcceptAllCookiesStorage
+import io.ktor.client.request.forms.submitForm
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.Parameters
+import io.ktor.http.Url
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlinx.serialization.json.Json
+
+internal class LocalZfwApiBackend : ZfwApiBackend {
+  private val json = Json { ignoreUnknownKeys = true }
+
+  private var sessionClient: HttpClient? = null
+  private var sessionCookieStorage: AcceptAllCookiesStorage? = null
+  private var lastLoginPage: LoginPageData? = null
+
+  /** 创建全新的、仅内存 Cookie 的会话。每次刷新验证码时调用，以获得新的 PHP session 和验证码。 */
+  private fun orCreateClient(): HttpClient {
+    sessionClient?.close()
+    val storage = AcceptAllCookiesStorage()
+    sessionCookieStorage = storage
+    val client = LocalUpstreamClientProvider.newClient(cookieStorage = storage)
+    sessionClient = client
+    return client
+  }
+
+  override suspend fun fetchCaptcha(): Pair<ByteArray, String> {
+    val client = orCreateClient()
+    val loginPage = fetchLoginPage(client)
+    lastLoginPage = loginPage
+    platformLog("ZFW", "fetchCaptcha: captchaSrc=${loginPage.captchaSrc}")
+    val captchaUrl = resolveCaptchaUrl(loginPage.captchaSrc)
+    val response =
+        client.get(captchaUrl) {
+          header(HttpHeaders.Accept, "image/*,*/*")
+        }
+    platformLog("ZFW", "fetchCaptcha: status=${response.status}")
+    if (response.status != HttpStatusCode.OK) {
+      throw localBusinessApiException(
+          "zfw_captcha_error",
+          "验证码获取失败",
+          response.status,
+      )
+    }
+    val bytes = response.body<ByteArray>()
+    platformLog("ZFW", "fetchCaptcha: got ${bytes.size} bytes")
+    // 不关闭 client，login() 将复用该会话
+    return bytes to ""
+  }
+
+  override suspend fun login(
+      username: String,
+      password: String,
+      captcha: String,
+      smsCode: String?,
+  ): Result<ZfwLoginResult> {
+    if (username.isBlank() || password.isBlank()) {
+      return Result.failure(ApiCallException("请输入账号和密码"))
+    }
+
+    return try {
+      val client = sessionClient ?: return Result.failure(ApiCallException("请先获取验证码"))
+      val loginPage =
+          lastLoginPage
+              ?: return Result.failure(ApiCallException("请先获取验证码"))
+      val encryptedPassword = encryptPassword(password, loginPage.rsaPublicKeyPem)
+      platformLog("ZFW", "login: username=$username, captchaLen=${captcha.length}, csrfParam=${loginPage.csrfParam}, rsaKeyFromPage=${loginPage.rsaPublicKeyPem.isNotBlank()}")
+      val validateResponse =
+          validateUser(
+              client = client,
+              loginPage = loginPage,
+              username = username,
+              password = encryptedPassword,
+              captcha = captcha,
+              smsCode = smsCode,
+          )
+      platformLog("ZFW", "validateUser: success=${validateResponse.success}, inputSms=${validateResponse.inputSms}, msg=${validateResponse.message}")
+
+      if (!validateResponse.success) {
+        return Result.failure(
+            ApiCallException(validateResponse.message ?: "登录验证失败，请检查账号密码或验证码")
+        )
+      }
+
+      if (validateResponse.inputSms) {
+        return Result.success(
+            ZfwLoginResult.NeedSms(
+                message = validateResponse.message ?: "需要短信验证",
+                remainSeconds = validateResponse.remain,
+            )
+        )
+      }
+
+      finalSubmit(
+          client = client,
+          loginPage = loginPage,
+          username = username,
+          password = encryptedPassword,
+          captcha = captcha,
+          smsCode = smsCode,
+      )
+
+      // 登录成功，提取会话 Cookie 供 WebView 注入使用
+      val cookies = sessionCookieStorage?.get(Url(ZFW_BASE_URL)).orEmpty()
+      platformLog("ZFW", "login success, cookies=${cookies.joinToString { it.name }}")
+      // 调试：用会话 Cookie 抓取充值首页 HTML 以便分析 API
+      try {
+        val dashResponse =
+            client.get(localUpstreamUrl(ZFW_BASE_URL)) {
+              header(
+                  HttpHeaders.Accept,
+                  "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              )
+            }
+        val dashHtml = dashResponse.bodyAsText()
+        DebugFileSink.write("zfw_dashboard.html", dashHtml)
+      } catch (e: Exception) {
+        DebugFileSink.write("zfw_dashboard_error.txt", e.message ?: "unknown")
+      }
+      Result.success(ZfwLoginResult.Success(cookies))
+    } catch (e: Exception) {
+      Result.failure(e.toUserFacingApiException("校园网充值登录失败，请稍后重试"))
+    }
+  }
+
+  private suspend fun fetchLoginPage(client: HttpClient): LoginPageData {
+    val response =
+        client.get(localUpstreamUrl(ZFW_BASE_URL)) {
+          header(
+              HttpHeaders.Accept,
+              "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          )
+        }
+    if (response.status != HttpStatusCode.OK) {
+      throw localBusinessApiException(
+          "zfw_login_error",
+          "加载登录页面失败",
+          response.status,
+      )
+    }
+    val html = response.bodyAsText()
+    val csrfToken =
+        CSRF_TOKEN_REGEX.find(html)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+    val csrfParam =
+        CSRF_PARAM_REGEX.find(html)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+    val captchaSrc =
+        CAPTCHA_SRC_REGEX.find(html)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+    val rsaPublicKeyPem =
+        RSA_PUBLIC_KEY_REGEX.find(html)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+
+    if (csrfToken.isBlank()) {
+      throw ApiCallException("登录页面安全令牌解析失败")
+    }
+
+    return LoginPageData(
+        csrfToken = csrfToken,
+        csrfParam = csrfParam.ifBlank { DEFAULT_CSRF_PARAM },
+        captchaSrc = captchaSrc,
+        rsaPublicKeyPem = rsaPublicKeyPem,
+    )
+  }
+
+  private suspend fun validateUser(
+      client: HttpClient,
+      loginPage: LoginPageData,
+      username: String,
+      password: String,
+      captcha: String,
+      smsCode: String?,
+  ): ZfwValidateResponse {
+    val response =
+        client.submitForm(
+            url = localUpstreamUrl("$ZFW_BASE_URL/site/validate-user"),
+            formParameters =
+                buildLoginParameters(
+                    loginPage = loginPage,
+                    username = username,
+                    password = password,
+                    captcha = captcha,
+                    smsCode = smsCode,
+                ),
+        ) {
+          header(HttpHeaders.Accept, "application/json, text/plain, */*")
+          header("X-Requested-With", "XMLHttpRequest")
+          header(HttpHeaders.Referrer, localUpstreamUrl(ZFW_BASE_URL))
+        }
+
+    val body = response.bodyAsText()
+    platformLog("ZFW", "validateUser: status=${response.status}, body=${body.take(200)}")
+    if (response.status != HttpStatusCode.OK) {
+      throw localBusinessApiException(
+          "zfw_validate_error",
+          "登录验证请求失败",
+          response.status,
+      )
+    }
+
+    return runCatching { json.decodeFromString<ZfwValidateResponse>(body) }
+        .getOrElse {
+          throw ApiCallException("登录验证响应解析失败")
+        }
+  }
+
+  private suspend fun finalSubmit(
+      client: HttpClient,
+      loginPage: LoginPageData,
+      username: String,
+      password: String,
+      captcha: String,
+      smsCode: String?,
+  ) {
+    val response =
+        client.submitForm(
+            url = localUpstreamUrl(ZFW_BASE_URL),
+            formParameters =
+                buildLoginParameters(
+                    loginPage = loginPage,
+                    username = username,
+                    password = password,
+                    captcha = captcha,
+                    smsCode = smsCode,
+                ),
+        ) {
+          header(HttpHeaders.Accept, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+          header(HttpHeaders.Referrer, localUpstreamUrl(ZFW_BASE_URL))
+        }
+
+    val body = response.bodyAsText()
+    platformLog("ZFW", "finalSubmit: status=${response.status}, isLoginPage=${isLoginPage(body)}, bodyLen=${body.length}")
+    // 302/301 重定向 = 登录成功，服务器跳转到自助服务首页
+    if (response.status == HttpStatusCode.Found || response.status == HttpStatusCode.MovedPermanently || response.status == HttpStatusCode.SeeOther) {
+      platformLog("ZFW", "finalSubmit: login success via redirect")
+      return
+    }
+    if (response.status != HttpStatusCode.OK) {
+      throw localBusinessApiException(
+          "zfw_login_error",
+          "登录提交失败",
+          response.status,
+      )
+    }
+
+    if (isLoginPage(body)) {
+      val error = extractLoginError(body)
+      platformLog("ZFW", "finalSubmit failed: $error")
+      throw ApiCallException(error ?: "登录失败，请检查账号密码或验证码")
+    }
+  }
+
+  private fun buildLoginParameters(
+      loginPage: LoginPageData,
+      username: String,
+      password: String,
+      captcha: String,
+      smsCode: String?,
+  ): Parameters =
+      Parameters.build {
+        append("LoginForm[username]", username)
+        append("LoginForm[password]", password)
+        append("LoginForm[verifyCode]", captcha)
+        append(loginPage.csrfParam, loginPage.csrfToken)
+        // 兼容部分页面使用固定 _csrf 参数名的情况
+        if (loginPage.csrfParam != DEFAULT_CSRF_PARAM) {
+          append(DEFAULT_CSRF_PARAM, loginPage.csrfToken)
+        }
+        smsCode?.takeIf { it.isNotBlank() }?.let { append("LoginForm[smsCode]", it) }
+      }
+
+  private fun resolveCaptchaUrl(src: String): String {
+    if (src.isBlank()) return localUpstreamUrl("$ZFW_BASE_URL/site/captcha")
+    if (src.startsWith("http://") || src.startsWith("https://")) {
+      return localUpstreamUrl(src)
+    }
+    if (src.startsWith("/")) {
+      return localUpstreamUrl("$ZFW_BASE_URL$src")
+    }
+    return localUpstreamUrl("$ZFW_BASE_URL/$src")
+  }
+
+  @OptIn(ExperimentalEncodingApi::class)
+  private fun encryptPassword(password: String, rsaPublicKeyPem: String): String {
+    val derBytes = rsaPublicKeyDer(rsaPublicKeyPem)
+    val encrypted = PlatformRsaPkcs1Encrypt.encrypt(password.encodeToByteArray(), derBytes)
+    return Base64.encode(encrypted)
+  }
+
+  @OptIn(ExperimentalEncodingApi::class)
+  private fun rsaPublicKeyDer(rsaPublicKeyPem: String): ByteArray {
+    val pem = rsaPublicKeyPem.ifBlank { RSA_PUBLIC_KEY_PEM }
+    val body =
+        pem.lineSequence()
+            .map { it.trim() }
+            .filterNot { it.startsWith("-----BEGIN") || it.startsWith("-----END") }
+            .joinToString("")
+    return Base64.decode(body)
+  }
+
+  private fun isLoginPage(html: String): Boolean {
+    val trimmed = html.trimStart()
+    if (!trimmed.startsWith("<!DOCTYPE", ignoreCase = true) &&
+        !trimmed.startsWith("<html", ignoreCase = true)
+    ) {
+      return false
+    }
+    return html.contains("id=\"login-form\"") ||
+        html.contains("name=\"csrf-param\"") ||
+        html.contains("id=\"loginform-verifycode-image\"")
+  }
+
+  private fun extractLoginError(html: String): String? {
+    val candidates =
+        listOf(
+            Regex("""<div[^>]*class=["'][^"']*alert[^"']*["'][^>]*>([\s\S]*?)</div>"""),
+            Regex("""<div[^>]*class=["'][^"']*help-block[^"']*["'][^>]*>([\s\S]*?)</div>"""),
+            Regex("""<p[^>]*class=["'][^"']*error[^"']*["'][^>]*>([\s\S]*?)</p>"""),
+        )
+    return candidates
+        .asSequence()
+        .mapNotNull { it.find(html)?.groupValues?.getOrNull(1)?.stripHtml()?.trim() }
+        .firstOrNull { it.isNotBlank() }
+  }
+
+  private fun String.stripHtml(): String =
+      replace(Regex("<[^>]+>"), " ")
+          .replace(Regex("\\s+"), " ")
+          .trim()
+
+  private data class LoginPageData(
+      val csrfToken: String,
+      val csrfParam: String,
+      val captchaSrc: String,
+      val rsaPublicKeyPem: String = "",
+  )
+
+  companion object {
+    private const val ZFW_BASE_URL = "https://zfw.buaa.edu.cn"
+    private const val DEFAULT_CSRF_PARAM = "_csrf"
+
+    private val CSRF_TOKEN_REGEX =
+        Regex("""<meta[^>]*name=["']csrf-token["'][^>]*content=["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
+    private val CSRF_PARAM_REGEX =
+        Regex("""<meta[^>]*name=["']csrf-param["'][^>]*content=["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
+    private val CAPTCHA_SRC_REGEX =
+        Regex("""<img[^>]*id=["']loginform-verifycode-image["'][^>]*src=["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
+    private val RSA_PUBLIC_KEY_REGEX =
+        Regex("""<input[^>]*id=["']public["'][^>]*value=["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
+
+    private const val RSA_PUBLIC_KEY_PEM =
+        """-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDD/uOBjC6KB0mG6Tdo0HFkZQsJ
+c06YHlL/DIdwRiK+SFFWHTytP2UQOsktFOvJhbNwUhCGNJ1+mvJCgBhqu59k/9J0
+CX1les4iSFUF4g1QlLPn2WD7IOuQd4hTdn5uVBcri0QgS4ji5z6zmYAN7wsgogua
+hFUJbpRfCsgV02MnIQIDAQAB
+-----END PUBLIC KEY-----"""
+  }
+}
