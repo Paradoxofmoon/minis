@@ -339,9 +339,4 @@ class ZfwViewModel(
         )
     loadPayCaptcha()
   }
-
-  /** 清空错误提示。 */
-  fun clearError() {
-    _state.value = _state.value.copy(error = null)
-  }
 }
