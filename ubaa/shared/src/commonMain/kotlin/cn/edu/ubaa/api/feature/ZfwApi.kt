@@ -15,6 +15,23 @@ sealed class ZfwLoginResult {
   data class NeedSms(val message: String, val remainSeconds: Int?) : ZfwLoginResult()
 }
 
+/** 缴费页面预加载信息：账号、产品、CSRF 令牌。 */
+data class ZfwPayPageData(
+    val cardNo: String,
+    val productId: String,
+    val csrfParam: String,
+    val csrfToken: String,
+)
+
+/** 充值提交结果。 */
+sealed class ZfwPayResult {
+  /** 充值成功，携带支付收银台地址（二维码 url 参数）。 */
+  data class Success(val cashierUrl: String, val qrcodeUrl: String) : ZfwPayResult()
+
+  /** 充值失败，携带错误信息。 */
+  data class Failure(val message: String) : ZfwPayResult()
+}
+
 /** 校园网自助服务门户 API 后端。 负责验证码获取与登录态建立。 */
 interface ZfwApiBackend {
   /** 获取登录验证码图片与相关 Cookie 描述。 */
@@ -42,6 +59,26 @@ interface ZfwApiBackend {
    * 需在 [login] 成功后调用（复用登录会话）。返回首页"产品信息"中的流量数据。
    */
   suspend fun getTraffic(): Result<TrafficData>
+
+  /** 获取缴费页面预加载信息（账号、产品、CSRF）。需在 [login] 成功后调用。 */
+  suspend fun fetchPayPage(): Result<ZfwPayPageData>
+
+  /** 获取缴费验证码图片。需在 [login] 成功后调用。 */
+  suspend fun fetchPayCaptcha(): Result<ByteArray>
+
+  /**
+   * 提交充值。
+   *
+   * @param amount 充值金额（元）
+   * @param captcha 缴费验证码
+   * @param payPageData 缴费页面预加载信息（含 CSRF 令牌）
+   * @return 成功时携带支付收银台地址
+   */
+  suspend fun submitPay(
+      amount: String,
+      captcha: String,
+      payPageData: ZfwPayPageData,
+  ): Result<ZfwPayResult>
 }
 
 /** 校园网充值 API 服务入口。 根据当前连接模式自动选择直连、WebVPN 或中继后端。 */
@@ -72,6 +109,19 @@ class ZfwApi(
 
   /** 查询校园网流量，需在 [login] 成功后调用。 */
   suspend fun getTraffic(): Result<TrafficData> = currentBackend().getTraffic()
+
+  /** 获取缴费页面预加载信息。 */
+  suspend fun fetchPayPage(): Result<ZfwPayPageData> = currentBackend().fetchPayPage()
+
+  /** 获取缴费验证码图片。 */
+  suspend fun fetchPayCaptcha(): Result<ByteArray> = currentBackend().fetchPayCaptcha()
+
+  /** 提交充值。 */
+  suspend fun submitPay(
+      amount: String,
+      captcha: String,
+      payPageData: ZfwPayPageData,
+  ): Result<ZfwPayResult> = currentBackend().submitPay(amount, captcha, payPageData)
 }
 
 internal class RelayZfwApiBackend(
@@ -96,6 +146,28 @@ internal class RelayZfwApiBackend(
   override suspend fun getTraffic(): Result<TrafficData> {
     return Result.failure(
         NotImplementedError("SERVER_RELAY 模式下校园网流量查询尚未实现")
+    )
+  }
+
+  override suspend fun fetchPayPage(): Result<ZfwPayPageData> {
+    return Result.failure(
+        NotImplementedError("SERVER_RELAY 模式下校园网充值尚未实现")
+    )
+  }
+
+  override suspend fun fetchPayCaptcha(): Result<ByteArray> {
+    return Result.failure(
+        NotImplementedError("SERVER_RELAY 模式下校园网充值尚未实现")
+    )
+  }
+
+  override suspend fun submitPay(
+      amount: String,
+      captcha: String,
+      payPageData: ZfwPayPageData,
+  ): Result<ZfwPayResult> {
+    return Result.failure(
+        NotImplementedError("SERVER_RELAY 模式下校园网充值尚未实现")
     )
   }
 }

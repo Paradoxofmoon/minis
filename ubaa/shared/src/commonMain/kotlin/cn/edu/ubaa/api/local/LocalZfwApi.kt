@@ -5,6 +5,8 @@ import cn.edu.ubaa.api.auth.toUserFacingApiException
 import cn.edu.ubaa.api.auth.userFacingMessageForCode
 import cn.edu.ubaa.api.feature.ZfwApiBackend
 import cn.edu.ubaa.api.feature.ZfwLoginResult
+import cn.edu.ubaa.api.feature.ZfwPayPageData
+import cn.edu.ubaa.api.feature.ZfwPayResult
 import cn.edu.ubaa.api.network.DebugFileSink
 import cn.edu.ubaa.api.network.platformLog
 import cn.edu.ubaa.api.plantform.PlatformRsaPkcs1Encrypt
@@ -248,6 +250,186 @@ internal class LocalZfwApiBackend : ZfwApiBackend {
     return total
   }
 
+  override suspend fun fetchPayPage(): Result<ZfwPayPageData> {
+    val client = sessionClient
+        ?: return Result.failure(ApiCallException("请先登录校园网自助服务门户"))
+
+    return try {
+      val response =
+          client.get(localUpstreamUrl("$ZFW_BASE_URL/pays")) {
+            header(
+                HttpHeaders.Accept,
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+          }
+      val html = response.bodyAsText()
+      DebugFileSink.write("zfw_pays.html", html)
+
+      if (response.status != HttpStatusCode.OK) {
+        return Result.failure(
+            localBusinessApiException(
+                "zfw_pay_error",
+                "加载缴费页面失败",
+                response.status,
+            )
+        )
+      }
+      if (isLoginPage(html)) {
+        return Result.failure(ApiCallException("登录已过期，请重新登录"))
+      }
+
+      val csrfParam =
+          CSRF_PARAM_REGEX.find(html)?.groupValues?.getOrNull(1)?.trim()
+              ?: DEFAULT_CSRF_PARAM
+      val csrfToken =
+          CSRF_TOKEN_REGEX.find(html)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+      val cardNo =
+          CARD_NO_REGEX.find(html)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+      val productId =
+          PRODUCT_ID_REGEX.find(html)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+
+      if (csrfToken.isBlank()) {
+        return Result.failure(ApiCallException("缴费页面 CSRF 令牌解析失败"))
+      }
+
+      Result.success(
+          ZfwPayPageData(
+              cardNo = cardNo,
+              productId = productId.ifBlank { "1" },
+              csrfParam = csrfParam,
+              csrfToken = csrfToken,
+          )
+      )
+    } catch (e: Exception) {
+      if (e is ApiCallException) Result.failure(e)
+      else Result.failure(e.toUserFacingApiException("加载缴费页面失败，请稍后重试"))
+    }
+  }
+
+  override suspend fun fetchPayCaptcha(): Result<ByteArray> {
+    val client = sessionClient
+        ?: return Result.failure(ApiCallException("请先登录校园网自助服务门户"))
+
+    return try {
+      val response =
+          client.get(localUpstreamUrl("$ZFW_BASE_URL/pay/captcha")) {
+            header(HttpHeaders.Accept, "image/*,*/*")
+          }
+      if (response.status != HttpStatusCode.OK) {
+        return Result.failure(
+            localBusinessApiException(
+                "zfw_pay_captcha_error",
+                "缴费验证码获取失败",
+                response.status,
+            )
+        )
+      }
+      Result.success(response.body<ByteArray>())
+    } catch (e: Exception) {
+      Result.failure(e.toUserFacingApiException("缴费验证码获取失败，请稍后重试"))
+    }
+  }
+
+  override suspend fun submitPay(
+      amount: String,
+      captcha: String,
+      payPageData: ZfwPayPageData,
+  ): Result<ZfwPayResult> {
+    val client = sessionClient
+        ?: return Result.failure(ApiCallException("请先登录校园网自助服务门户"))
+
+    return try {
+      val response =
+          client.submitForm(
+              url = localUpstreamUrl("$ZFW_BASE_URL/pay/card"),
+              formParameters =
+                  Parameters.build {
+                    append("OneCardForm[cardNo]", payPageData.cardNo)
+                    append("OneCardForm[productId]", payPageData.productId)
+                    append("OneCardForm[amount]", amount)
+                    append("OneCardForm[verifyCode]", captcha)
+                    append(payPageData.csrfParam, payPageData.csrfToken)
+                  },
+          ) {
+            header(HttpHeaders.Accept, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            header(HttpHeaders.Referrer, localUpstreamUrl("$ZFW_BASE_URL/pays"))
+          }
+
+      val html = response.bodyAsText()
+      DebugFileSink.write("zfw_pay_result.html", html)
+
+      // 提取支付收银台地址（cashier.cc-pay.cn）
+      val cashierUrl = extractCashierUrl(html)
+      if (cashierUrl != null) {
+        val qrcodeUrl = "$ZFW_BASE_URL/pay/qrcode?url=${encodeUrlParam(cashierUrl)}"
+        Result.success(ZfwPayResult.Success(cashierUrl = cashierUrl, qrcodeUrl = qrcodeUrl))
+      } else {
+        // 没有支付地址，可能是验证码错误或账号异常，尝试提取错误信息
+        val error = extractPayError(html)
+        Result.success(ZfwPayResult.Failure(error ?: "充值失败，请检查验证码或金额"))
+      }
+    } catch (e: Exception) {
+      if (e is ApiCallException) Result.failure(e)
+      else Result.failure(e.toUserFacingApiException("充值提交失败，请稍后重试"))
+    }
+  }
+
+  /** 从充值结果 HTML 中提取 cashier.cc-pay.cn 收银台地址。 */
+  private fun extractCashierUrl(html: String): String? {
+    val patterns =
+        listOf(
+            Regex("""cashier\.cc-pay\.cn[^"'\\\s<>]*""", RegexOption.IGNORE_CASE),
+            Regex("""(?:https%3A%2F%2F|https://)cashier\.cc-pay\.cn[^"'\\\s<>]*"""),
+        )
+    for (p in patterns) {
+      val raw = p.find(html)?.value ?: continue
+      val decoded =
+          if (raw.contains("%3A", ignoreCase = true) || raw.contains("%2F", ignoreCase = true)) {
+            raw.replace("%3A", ":").replace("%2F", "/")
+          } else {
+            raw
+          }
+      return if (decoded.startsWith("https://") || decoded.startsWith("http://")) {
+        decoded
+      } else {
+        "https://$decoded"
+      }
+    }
+    return null
+  }
+
+  /** URL 参数 RFC3986 编码。 */
+  private fun encodeUrlParam(value: String): String {
+    val sb = StringBuilder()
+    for (ch in value) {
+      when {
+        ch.isLetterOrDigit() || ch == '-' || ch == '_' || ch == '.' || ch == '~' -> sb.append(ch)
+        else -> {
+          val bytes = ch.toString().encodeToByteArray()
+          for (b in bytes) {
+            sb.append('%')
+            sb.append(HEX_DIGITS[(b.toInt() shr 4) and 0x0F])
+            sb.append(HEX_DIGITS[b.toInt() and 0x0F])
+          }
+        }
+      }
+    }
+    return sb.toString()
+  }
+
+  /** 从充值结果 HTML 中提取错误信息（验证码错误、账号异常等）。 */
+  private fun extractPayError(html: String): String? {
+    val candidates =
+        listOf(
+            Regex("""<div[^>]*class=["'][^"']*help-block-error[^"']*["'][^>]*>([\s\S]*?)</div>"""),
+            Regex("""<div[^>]*class=["'][^"']*alert[^"']*["'][^>]*>([\s\S]*?)</div>"""),
+        )
+    return candidates
+        .asSequence()
+        .mapNotNull { it.find(html)?.groupValues?.getOrNull(1)?.stripHtml()?.trim() }
+        .firstOrNull { it.isNotBlank() }
+  }
+
   private suspend fun fetchLoginPage(client: HttpClient): LoginPageData {
     val response =
         client.get(localUpstreamUrl(ZFW_BASE_URL)) {
@@ -488,6 +670,16 @@ internal class LocalZfwApiBackend : ZfwApiBackend {
     private val HOUR_REGEX = Regex("""(\d+)\s*小时""")
     private val MINUTE_REGEX = Regex("""(\d+)\s*分""")
     private val SECOND_REGEX = Regex("""(\d+)\s*秒""")
+
+    // 充值相关正则
+    /** 匹配一卡通账号（value 属性在 disabled input 中）。 */
+    private val CARD_NO_REGEX =
+        Regex("""<input[^>]*name=["']OneCardForm\[cardNo\]["'][^>]*value=["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
+    /** 匹配产品 ID（select 里的 option value）。 */
+    private val PRODUCT_ID_REGEX =
+        Regex("""<select[^>]*name=["']OneCardForm\[productId\]["'][\s\S]*?<option[^>]*value=["']([^"']+)["'][^>]*>[\s\S]*?</select>""", RegexOption.IGNORE_CASE)
+
+    private const val HEX_DIGITS = "0123456789ABCDEF"
 
     private const val RSA_PUBLIC_KEY_PEM =
         """-----BEGIN PUBLIC KEY-----

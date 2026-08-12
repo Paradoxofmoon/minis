@@ -1119,6 +1119,11 @@ fun MainAppScreen(
                      onSubmitSmsClick = viewModel::submitSms,
                      onRefreshCaptchaClick = viewModel::refreshCaptcha,
                      onResetClick = viewModel::reset,
+                     onAmountChange = viewModel::onAmountChange,
+                     onPayCaptchaChange = viewModel::onPayCaptchaChange,
+                     onRefreshPayCaptchaClick = viewModel::refreshPayCaptcha,
+                     onSubmitPayClick = viewModel::submitPay,
+                     onDismissQrcode = viewModel::dismissQrcode,
                  )
                }
            AppScreen.ELECTRICITY -> ElectricityScreen()

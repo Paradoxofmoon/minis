@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.ubaa.api.feature.ZfwApi
 import cn.edu.ubaa.api.feature.ZfwLoginResult
+import cn.edu.ubaa.api.feature.ZfwPayPageData
+import cn.edu.ubaa.api.feature.ZfwPayResult
 import cn.edu.ubaa.api.storage.CredentialStore
 import io.ktor.http.Cookie
 import kotlin.io.encoding.Base64
@@ -28,6 +30,17 @@ data class ZfwUiState(
     val loginSuccess: Boolean = false,
     val cookies: List<Cookie> = emptyList(),
     val error: String? = null,
+    // ---- 充值表单状态 ----
+    val cardNo: String = "",
+    val productId: String = "1",
+    val amount: String = "",
+    val payCaptcha: String = "",
+    val payCaptchaImageBase64: String? = null,
+    val isLoadingPayCaptcha: Boolean = false,
+    val isSubmittingPay: Boolean = false,
+    val isLoadingPayPage: Boolean = false,
+    val payQrcodeUrl: String? = null,
+    val payCashierUrl: String? = null,
 )
 
 /** 校园网充值（深澜自助服务门户）ViewModel。 */
@@ -36,6 +49,8 @@ class ZfwViewModel(
 ) : ViewModel() {
   private val _state = MutableStateFlow(ZfwUiState())
   val state: StateFlow<ZfwUiState> = _state.asStateFlow()
+
+  private var payPageData: ZfwPayPageData? = null
 
   init {
     prefillCredentials()
@@ -139,6 +154,8 @@ class ZfwViewModel(
                         cookies = result.cookies,
                         error = null,
                     )
+                // 登录成功后加载缴费页面与验证码
+                loadPayPage()
               }
               is ZfwLoginResult.NeedSms -> {
                 _state.value =
@@ -183,5 +200,148 @@ class ZfwViewModel(
                 )
           }
     }
+  }
+
+  // ===== 充值表单 =====
+
+  fun onAmountChange(value: String) {
+    _state.value = _state.value.copy(amount = value)
+  }
+
+  fun onPayCaptchaChange(value: String) {
+    _state.value = _state.value.copy(payCaptcha = value)
+  }
+
+  /** 登录成功后加载缴费页面（账号 + CSRF）与缴费验证码。 */
+  private fun loadPayPage() {
+    _state.value = _state.value.copy(isLoadingPayPage = true, error = null)
+    viewModelScope.launch {
+      zfwApi
+          .fetchPayPage()
+          .onSuccess { pageData ->
+            payPageData = pageData
+            _state.value =
+                _state.value.copy(
+                    isLoadingPayPage = false,
+                    cardNo = pageData.cardNo,
+                    productId = pageData.productId,
+                )
+            loadPayCaptcha()
+          }
+          .onFailure { error ->
+            _state.value =
+                _state.value.copy(
+                    isLoadingPayPage = false,
+                    error = error.message ?: "加载缴费页面失败",
+                )
+          }
+    }
+  }
+
+  /** 刷新缴费验证码。 */
+  fun refreshPayCaptcha() {
+    loadPayCaptcha()
+  }
+
+  @OptIn(ExperimentalEncodingApi::class)
+  private fun loadPayCaptcha() {
+    _state.value = _state.value.copy(isLoadingPayCaptcha = true)
+    viewModelScope.launch {
+      zfwApi
+          .fetchPayCaptcha()
+          .onSuccess { bytes ->
+            _state.value =
+                _state.value.copy(
+                    isLoadingPayCaptcha = false,
+                    payCaptchaImageBase64 = Base64.encode(bytes),
+                    payCaptcha = "",
+                )
+          }
+          .onFailure { error ->
+            _state.value =
+                _state.value.copy(
+                    isLoadingPayCaptcha = false,
+                    error = error.message ?: "缴费验证码加载失败",
+                )
+          }
+    }
+  }
+
+  /** 提交充值。 */
+  fun submitPay() {
+    val current = _state.value
+    val pageData = payPageData
+    if (pageData == null) {
+      _state.value = current.copy(error = "缴费信息未加载，请重新登录")
+      return
+    }
+    if (current.amount.isBlank()) {
+      _state.value = current.copy(error = "请输入充值金额")
+      return
+    }
+    val amountValue = current.amount.toDoubleOrNull()
+    if (amountValue == null || amountValue <= 0) {
+      _state.value = current.copy(error = "金额必须是大于 0 的数字")
+      return
+    }
+    if (current.payCaptcha.isBlank()) {
+      _state.value = current.copy(error = "请输入缴费验证码")
+      return
+    }
+
+    _state.value = current.copy(isSubmittingPay = true, error = null)
+    viewModelScope.launch {
+      zfwApi
+          .submitPay(
+              amount = current.amount,
+              captcha = current.payCaptcha,
+              payPageData = pageData,
+          )
+          .onSuccess { result ->
+            when (result) {
+              is ZfwPayResult.Success -> {
+                _state.value =
+                    _state.value.copy(
+                        isSubmittingPay = false,
+                        payQrcodeUrl = result.qrcodeUrl,
+                        payCashierUrl = result.cashierUrl,
+                        error = null,
+                    )
+              }
+              is ZfwPayResult.Failure -> {
+                _state.value =
+                    _state.value.copy(
+                        isSubmittingPay = false,
+                        error = result.message,
+                    )
+                // 验证码可能已失效，刷新验证码与缴费页面令牌
+                loadPayCaptcha()
+              }
+            }
+          }
+          .onFailure { error ->
+            _state.value =
+                _state.value.copy(
+                    isSubmittingPay = false,
+                    error = error.message ?: "充值提交失败，请稍后重试",
+                )
+          }
+    }
+  }
+
+  /** 关闭二维码展示，返回充值表单。 */
+  fun dismissQrcode() {
+    _state.value =
+        _state.value.copy(
+            payQrcodeUrl = null,
+            payCashierUrl = null,
+            payCaptcha = "",
+        )
+    loadPayCaptcha()
+  }
+
+  /** 清空错误提示。 */
+  fun clearError() {
+    _state.value = _state.value.copy(error = null)
   }
 }

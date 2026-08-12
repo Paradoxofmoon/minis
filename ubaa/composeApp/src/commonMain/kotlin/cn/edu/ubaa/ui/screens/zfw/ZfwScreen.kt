@@ -39,14 +39,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import cn.edu.ubaa.ui.component.InAppWebView
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
-
-private const val ZFW_DASHBOARD_URL = "https://zfw.buaa.edu.cn/"
 
 @Composable
 fun ZfwScreen(
@@ -59,6 +56,11 @@ fun ZfwScreen(
     onSubmitSmsClick: () -> Unit,
     onRefreshCaptchaClick: () -> Unit,
     onResetClick: () -> Unit,
+    onAmountChange: (String) -> Unit,
+    onPayCaptchaChange: (String) -> Unit,
+    onRefreshPayCaptchaClick: () -> Unit,
+    onSubmitPayClick: () -> Unit,
+    onDismissQrcode: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   Box(modifier = modifier.fillMaxSize().padding(16.dp)) {
@@ -67,8 +69,21 @@ fun ZfwScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
       when {
+        uiState.payQrcodeUrl != null ->
+            ZfwQrcodeContent(
+                qrcodeUrl = uiState.payQrcodeUrl!!,
+                cashierUrl = uiState.payCashierUrl,
+                onBackClick = onDismissQrcode,
+            )
         uiState.loginSuccess ->
-            ZfwSuccessContent(cookies = uiState.cookies, onResetClick = onResetClick)
+            ZfwPayForm(
+                uiState = uiState,
+                onAmountChange = onAmountChange,
+                onPayCaptchaChange = onPayCaptchaChange,
+                onRefreshPayCaptchaClick = onRefreshPayCaptchaClick,
+                onSubmitPayClick = onSubmitPayClick,
+                onResetClick = onResetClick,
+            )
         uiState.needsSms ->
             ZfwSmsForm(
                 uiState = uiState,
@@ -314,36 +329,213 @@ private fun ZfwSmsForm(
 }
 
 @Composable
-private fun ZfwSuccessContent(
-    cookies: List<io.ktor.http.Cookie>,
+private fun ZfwPayForm(
+    uiState: ZfwUiState,
+    onAmountChange: (String) -> Unit,
+    onPayCaptchaChange: (String) -> Unit,
+    onRefreshPayCaptchaClick: () -> Unit,
+    onSubmitPayClick: () -> Unit,
     onResetClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-  val cookieStrings =
-      remember(cookies) {
-        cookies.map { cookie -> "${cookie.name}=${cookie.value}" }
+  Column(
+      modifier = modifier.fillMaxWidth(),
+      verticalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    Text(
+        text = "校园网充值",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+    )
+
+    if (uiState.isLoadingPayPage) {
+      Box(
+          modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+          contentAlignment = Alignment.Center,
+      ) {
+        CircularProgressIndicator()
+      }
+    } else {
+      if (uiState.cardNo.isNotBlank()) {
+        OutlinedTextField(
+            value = uiState.cardNo,
+            onValueChange = {},
+            label = { Text("一卡通账号") },
+            singleLine = true,
+            enabled = false,
+            modifier = Modifier.fillMaxWidth(),
+        )
       }
 
-  Column(modifier = modifier.fillMaxSize()) {
+      OutlinedTextField(
+          value = uiState.amount,
+          onValueChange = onAmountChange,
+          label = { Text("充值金额（元）") },
+          singleLine = true,
+          keyboardOptions =
+              KeyboardOptions(
+                  keyboardType = KeyboardType.Decimal,
+                  imeAction = ImeAction.Next,
+              ),
+          modifier = Modifier.fillMaxWidth(),
+      )
+
+      PayCaptchaRow(
+          captchaBase64 = uiState.payCaptchaImageBase64,
+          isLoading = uiState.isLoadingPayCaptcha,
+          onRefreshClick = onRefreshPayCaptchaClick,
+      )
+
+      OutlinedTextField(
+          value = uiState.payCaptcha,
+          onValueChange = onPayCaptchaChange,
+          label = { Text("验证码") },
+          singleLine = true,
+          keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+          modifier = Modifier.fillMaxWidth(),
+      )
+
+      Button(
+          onClick = onSubmitPayClick,
+          enabled =
+              !uiState.isSubmittingPay &&
+                  uiState.amount.isNotBlank() &&
+                  uiState.payCaptcha.isNotBlank(),
+          modifier = Modifier.fillMaxWidth().height(48.dp),
+      ) {
+        if (uiState.isSubmittingPay) {
+          CircularProgressIndicator(
+              modifier = Modifier.size(20.dp),
+              strokeWidth = 2.dp,
+              color = MaterialTheme.colorScheme.onPrimary,
+          )
+        } else {
+          Text("提交充值")
+        }
+      }
+    }
+
+    OutlinedButton(onClick = onResetClick, modifier = Modifier.fillMaxWidth()) {
+      Text("重新登录")
+    }
+
+    uiState.error?.let { ErrorCard(message = it) }
+  }
+}
+
+@OptIn(ExperimentalEncodingApi::class)
+@Composable
+private fun PayCaptchaRow(
+    captchaBase64: String?,
+    isLoading: Boolean,
+    onRefreshClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  val imageBytes =
+      remember(captchaBase64) {
+        captchaBase64?.takeIf { it.isNotBlank() }?.let { Base64.decode(it) }
+      }
+
+  Card(
+      modifier = modifier.fillMaxWidth().height(120.dp),
+      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+  ) {
+    Box(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+      if (isLoading) {
+        CircularProgressIndicator(
+            modifier = Modifier.align(Alignment.Center).size(24.dp),
+            strokeWidth = 2.dp,
+        )
+      } else if (imageBytes != null) {
+        AsyncImage(
+            model = ImageRequest.Builder(LocalPlatformContext.current)
+                .data(imageBytes)
+                .memoryCachePolicy(coil3.request.CachePolicy.DISABLED)
+                .diskCachePolicy(coil3.request.CachePolicy.DISABLED)
+                .build(),
+            contentDescription = "缴费验证码",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Fit,
+        )
+      } else {
+        Text(
+            text = "点击刷新验证码",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.align(Alignment.Center),
+        )
+      }
+
+      IconButton(
+          onClick = onRefreshClick,
+          enabled = !isLoading,
+          modifier = Modifier.align(Alignment.CenterEnd),
+      ) {
+        Icon(
+            imageVector = Icons.Default.Refresh,
+            contentDescription = "刷新缴费验证码",
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun ZfwQrcodeContent(
+    qrcodeUrl: String,
+    cashierUrl: String?,
+    onBackClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  Column(modifier = modifier.fillMaxWidth()) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
       Text(
-          text = "登录成功，正在打开充值页面",
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.primary,
+          text = "请扫码支付",
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.Bold,
           modifier = Modifier.weight(1f),
       )
-      OutlinedButton(onClick = onResetClick) {
-        Text("重新登录")
+      OutlinedButton(onClick = onBackClick) {
+        Text("返回")
       }
     }
-    InAppWebView(
-        url = ZFW_DASHBOARD_URL,
-        modifier = Modifier.fillMaxSize(),
-        cookies = cookieStrings,
+
+    Text(
+        text = "请使用微信或支付宝扫一扫完成支付",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+      Box(
+          modifier = Modifier.fillMaxWidth().padding(24.dp),
+          contentAlignment = Alignment.Center,
+      ) {
+        AsyncImage(
+            model = ImageRequest.Builder(LocalPlatformContext.current)
+                .data(qrcodeUrl)
+                .build(),
+            contentDescription = "支付二维码",
+            modifier = Modifier.fillMaxWidth(),
+            contentScale = ContentScale.Fit,
+        )
+      }
+    }
+
+    cashierUrl?.let { url ->
+      Text(
+          text = "收银台地址：$url",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
   }
 }
 
