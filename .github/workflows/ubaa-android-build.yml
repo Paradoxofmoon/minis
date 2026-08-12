@@ -1,11 +1,14 @@
 # UBAA Android APK CI/CD
-# Builds debug & release APK from the ubaa/ subdirectory (KMP project)
+# Builds debug APK from the ubaa/ subdirectory (KMP project)
 
 name: Build UBAA Android APK
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'ubaa/**'
+      - '.github/workflows/ubaa-android-build.yml'
   workflow_dispatch:
 
 jobs:
@@ -16,20 +19,18 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-        working-directory: ubaa
+        with:
+          build-root-directory: ubaa
 
       - name: Build Debug APK
-        run: ./gradlew :androidApp:assembleDebug
+        run: ./gradlew :androidApp:assembleDebug --stacktrace --no-daemon
         working-directory: ubaa
 
       - name: Upload Debug APK
