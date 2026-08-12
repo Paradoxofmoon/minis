@@ -29,6 +29,10 @@ jobs:
         with:
           build-root-directory: ubaa
 
+      - name: Grant execute permission
+        run: chmod +x gradlew
+        working-directory: ubaa
+
       - name: Build Debug APK
         run: ./gradlew :androidApp:assembleDebug --stacktrace --no-daemon
         working-directory: ubaa
