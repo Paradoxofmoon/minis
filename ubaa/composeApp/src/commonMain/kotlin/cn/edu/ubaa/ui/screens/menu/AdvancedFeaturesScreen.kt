@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AssignmentTurnedIn
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Card
@@ -48,6 +49,12 @@ internal fun advancedFeatureItems(): List<AdvancedFeatureItem> =
             icon = Icons.Default.DateRange,
         ),
         AdvancedFeatureItem(
+            id = "sport",
+            title = "运动场馆",
+            description = "查询、提交和管理运动场地预约",
+            icon = Icons.Default.DirectionsRun,
+        ),
+        AdvancedFeatureItem(
             id = "ygdk",
             title = "阳光打卡",
             description = "查看记录并提交体育活动打卡",
@@ -70,6 +77,7 @@ internal fun advancedFeatureItems(): List<AdvancedFeatureItem> =
 @Composable
 fun AdvancedFeaturesScreen(
     onCgyyClick: () -> Unit,
+    onSportClick: () -> Unit,
     onEvaluationClick: () -> Unit,
     onYgdkClick: () -> Unit,
     gridState: LazyGridState,
@@ -90,6 +98,7 @@ fun AdvancedFeaturesScreen(
             onClick = {
               when (feature.id) {
                 "cgyy" -> onCgyyClick()
+                "sport" -> onSportClick()
                 "ygdk" -> onYgdkClick()
                 "evaluation" -> onEvaluationClick()
               }

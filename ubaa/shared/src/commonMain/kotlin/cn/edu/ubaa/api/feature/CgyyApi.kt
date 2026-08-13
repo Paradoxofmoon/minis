@@ -43,7 +43,6 @@ open class CgyyApi(
     private val backendProvider: () -> CgyyApiBackend = { ConnectionRuntime.apiFactory().cgyyApi() }
 ) {
   internal constructor(backend: CgyyApiBackend) : this({ backend })
-
   constructor(apiClient: ApiClient) : this({ RelayCgyyApiBackend(apiClient) })
 
   private fun currentBackend(): CgyyApiBackend = backendProvider()
@@ -134,3 +133,7 @@ internal class RelayCgyyApiBackend(private val apiClient: ApiClient = ApiClientP
     return safeApiCall { apiClient.getClient().get("api/v1/cgyy/orders/lock-code") }
   }
 }
+
+/** 运动场（venue-server）预约 API 服务。复用 [CgyyApiBackend] 接口，只切换后端为运动场。 */
+class SportVenueApi :
+    CgyyApi({ ConnectionRuntime.apiFactory().sportVenueApi() })

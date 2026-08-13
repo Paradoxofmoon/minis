@@ -46,10 +46,17 @@ import kotlinx.serialization.json.jsonPrimitive
 
 internal class LocalCgyyApiBackend(
     private val captchaSolver: LocalCgyyCaptchaSolver = DefaultLocalCgyyCaptchaSolver(),
+    private val sportVenue: Boolean = false,
 ) : CgyyApiBackend {
   private val json = Json { ignoreUnknownKeys = true }
   private val clientMutex = Mutex()
   private val clientCache = mutableMapOf<String, LocalCgyyClient>()
+
+  private val baseUrl = if (sportVenue) LocalCgyyClient.SPORT_BASE_URL else LocalCgyyClient.DEFAULT_BASE_URL
+  private val ssoCookieName =
+      if (sportVenue) LocalCgyyClient.SPORT_SSO_COOKIE_NAME else LocalCgyyClient.DEFAULT_SSO_COOKIE_NAME
+  private val referrerUrl =
+      if (sportVenue) LocalCgyyClient.SPORT_REFERRER_URL else LocalCgyyClient.DEFAULT_REFERRER_URL
 
   internal fun clearCache() {
     clientCache.clear()
@@ -210,7 +217,16 @@ internal class LocalCgyyApiBackend(
       }
 
   private suspend fun currentClient(username: String): LocalCgyyClient =
-      clientMutex.withLock { clientCache.getOrPut(username) { LocalCgyyClient(username) } }
+      clientMutex.withLock {
+        clientCache.getOrPut(username) {
+          LocalCgyyClient(
+              username = username,
+              baseUrl = baseUrl,
+              ssoCookieName = ssoCookieName,
+              referrerUrl = referrerUrl,
+          )
+        }
+      }
 
   private suspend fun <T> execute(
       defaultMessage: String,
@@ -448,6 +464,9 @@ private data class LocalCgyyApiEnvelope(
 private class LocalCgyyClient(
     private val username: String,
     private val signer: LocalCgyySigner = LocalCgyySigner(),
+    private val baseUrl: String = DEFAULT_BASE_URL,
+    private val ssoCookieName: String = DEFAULT_SSO_COOKIE_NAME,
+    private val referrerUrl: String = DEFAULT_REFERRER_URL,
 ) {
   private val json = Json { ignoreUnknownKeys = true }
   private val loginMutex = Mutex()
@@ -668,7 +687,7 @@ private class LocalCgyyClient(
           header(HttpHeaders.Accept, "application/json, text/plain, */*")
           header(
               HttpHeaders.Referrer,
-              localCgyyUpstreamUrl("https://cgyy.buaa.edu.cn/venue-zhjs/mobileReservation"),
+              localCgyyUpstreamUrl(referrerUrl),
           )
           header("app-key", signer.appKey)
           header("timestamp", timestamp.toString())
@@ -751,7 +770,7 @@ private class LocalCgyyClient(
               followRedirects = true,
           )
       try {
-        cgyyDirectClient.get(localCgyyUpstreamUrl("${BASE_URL}sso/manageLogin"))
+        cgyyDirectClient.get(localCgyyUpstreamUrl("${baseUrl}sso/manageLogin"))
       } finally {
         cgyyDirectClient.close()
       }
@@ -759,8 +778,8 @@ private class LocalCgyyClient(
       val storage = LocalCookieStore.storage(ConnectionMode.DIRECT)
       val ssoToken =
           storage
-              .get(Url(localCgyyUpstreamUrl(BASE_URL)))
-              .firstOrNull { it.name == SSO_COOKIE_NAME }
+              .get(Url(localCgyyUpstreamUrl(baseUrl)))
+              .firstOrNull { it.name == ssoCookieName }
               ?.value
               ?.takeIf { it.isNotBlank() }
               ?: throw LocalCgyyApiException(
@@ -802,7 +821,7 @@ private class LocalCgyyClient(
   }
 
   private fun buildUrl(path: String): String =
-      localCgyyUpstreamUrl("$BASE_URL${path.removePrefix("/")}")
+      localCgyyUpstreamUrl("$baseUrl${path.removePrefix("/")}")
 
   private fun normalizePath(path: String): String = if (path.startsWith("/")) path else "/$path"
 
@@ -848,8 +867,14 @@ private class LocalCgyyClient(
   }
 
   companion object {
-    private const val BASE_URL = "https://cgyy.buaa.edu.cn/venue-zhjs-server/"
-    private const val SSO_COOKIE_NAME = "sso_buaa_zhjs_token"
+    const val DEFAULT_BASE_URL = "https://cgyy.buaa.edu.cn/venue-zhjs-server/"
+    const val DEFAULT_SSO_COOKIE_NAME = "sso_buaa_zhjs_token"
+    const val DEFAULT_REFERRER_URL = "https://cgyy.buaa.edu.cn/venue-zhjs/mobileReservation"
+
+    /** 运动场（venue-server）专项配置。 */
+    const val SPORT_BASE_URL = "https://cgyy.buaa.edu.cn/venue-server/"
+    const val SPORT_SSO_COOKIE_NAME = "sso_buaa_token"
+    const val SPORT_REFERRER_URL = "https://cgyy.buaa.edu.cn/venue/mobileReservation"
   }
 }
 

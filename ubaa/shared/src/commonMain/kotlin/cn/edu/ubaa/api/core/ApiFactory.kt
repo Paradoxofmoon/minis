@@ -68,6 +68,9 @@ interface ApiFactory {
 
   fun cgyyApi(): CgyyApiBackend
 
+  /** 运动场（venue-server）预约后端，复用 CgyyApiBackend 接口。 */
+  fun sportVenueApi(): CgyyApiBackend
+
   fun ygdkApi(): YgdkApiBackend
 
   fun classroomApi(): ClassroomApiBackend
@@ -153,6 +156,13 @@ internal object DefaultApiFactory : ApiFactory {
         ConnectionMode.SERVER_RELAY -> RelayCgyyApiBackend()
       }
 
+  override fun sportVenueApi(): CgyyApiBackend =
+      when (mode()) {
+        ConnectionMode.DIRECT -> localBackends(ConnectionMode.DIRECT).sportVenueApi
+        ConnectionMode.WEBVPN -> localBackends(ConnectionMode.WEBVPN).sportVenueApi
+        ConnectionMode.SERVER_RELAY -> RelayCgyyApiBackend()
+      }
+
   override fun ygdkApi(): YgdkApiBackend =
       when (mode()) {
         ConnectionMode.DIRECT -> localBackends(ConnectionMode.DIRECT).ygdkApi
@@ -225,6 +235,7 @@ internal object DefaultApiFactory : ApiFactory {
     val judgeApi = LocalJudgeApiBackend()
     val bykcApi = LocalBykcApiBackend()
     val cgyyApi = LocalCgyyApiBackend()
+    val sportVenueApi = LocalCgyyApiBackend(sportVenue = true)
     val ygdkApi = LocalYgdkApiBackend()
     val classroomApi = LocalClassroomApiBackend()
     val evaluationService = LocalEvaluationServiceBackend()
@@ -240,6 +251,7 @@ internal object DefaultApiFactory : ApiFactory {
       judgeApi.clearCache()
       bykcApi.clearCache()
       cgyyApi.clearCache()
+      sportVenueApi.clearCache()
       ygdkApi.clearCache()
       classroomApi.clearCache()
       evaluationService.clearCache()
@@ -264,6 +276,8 @@ internal object RelayApiFactory : ApiFactory {
   override fun bykcApi(): BykcApiBackend = RelayBykcApiBackend()
 
   override fun cgyyApi(): CgyyApiBackend = RelayCgyyApiBackend()
+
+  override fun sportVenueApi(): CgyyApiBackend = RelayCgyyApiBackend()
 
   override fun ygdkApi(): YgdkApiBackend = RelayYgdkApiBackend()
 
