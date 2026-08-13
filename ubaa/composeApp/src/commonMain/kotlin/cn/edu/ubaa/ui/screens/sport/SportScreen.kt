@@ -38,6 +38,8 @@ fun SportScreen(
     modifier: Modifier = Modifier,
 ) {
   val uiState by viewModel.uiState.collectAsState()
+  val initialError = uiState.initialError
+  val dayInfoError = uiState.dayInfoError
 
   Column(modifier = modifier.fillMaxSize()) {
     when {
@@ -45,13 +47,13 @@ fun SportScreen(
           Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
           }
-      uiState.initialError != null && uiState.sites.isEmpty() ->
+      initialError != null && uiState.sites.isEmpty() ->
           Column(
               modifier = Modifier.fillMaxSize().padding(16.dp),
               horizontalAlignment = Alignment.CenterHorizontally,
               verticalArrangement = Arrangement.Center,
           ) {
-            Text(uiState.initialError, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+            Text(initialError, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
             Spacer(Modifier.height(12.dp))
             Button(onClick = viewModel::loadInitialData) { Text("重试") }
           }
@@ -73,13 +75,13 @@ fun SportScreen(
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                   CircularProgressIndicator()
                 }
-            uiState.dayInfoError != null ->
+            dayInfoError != null ->
                 Column(
                     modifier = Modifier.fillMaxSize().padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                  Text(uiState.dayInfoError, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+                  Text(dayInfoError, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
                   Spacer(Modifier.height(8.dp))
                   Button(onClick = viewModel::refreshReserveData) { Text("重试") }
                 }
@@ -265,24 +267,26 @@ private fun SportSlotCell(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-  val clickable = slotState?.isReservable == true || selected
+  val state = slotState
+  val fee = state?.orderFee
+  val clickable = state?.isReservable == true || selected
   val bg =
       when {
         selected -> MaterialTheme.colorScheme.primary
-        slotState?.isReservable == true -> Color(0xFFE8F5E9)
+        state?.isReservable == true -> Color(0xFFE8F5E9)
         else -> MaterialTheme.colorScheme.surfaceVariant
       }
   val text =
       when {
         selected -> "已选"
-        slotState?.isReservable == true && slotState.orderFee != null -> "¥${formatFee(slotState.orderFee)}"
-        slotState?.isReservable == true -> "可约"
+        state?.isReservable == true && fee != null -> "¥${formatFee(fee)}"
+        state?.isReservable == true -> "可约"
         else -> "—"
       }
   val textColor =
       when {
         selected -> MaterialTheme.colorScheme.onPrimary
-        slotState?.isReservable == true -> MaterialTheme.colorScheme.primary
+        state?.isReservable == true -> MaterialTheme.colorScheme.primary
         else -> MaterialTheme.colorScheme.onSurfaceVariant
       }
   Box(
