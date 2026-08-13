@@ -228,6 +228,7 @@ internal class LocalCgyyApiBackend(
               referrerUrl = referrerUrl,
               venueLabel = venueLabel,
               reservationRoleId = reservationRoleId,
+              sportVenue = sportVenue,
           )
         }
       }
@@ -473,6 +474,7 @@ private class LocalCgyyClient(
     private val referrerUrl: String = DEFAULT_REFERRER_URL,
     private val venueLabel: String = "研讨室",
     private val reservationRoleId: Int? = 3,
+    private val sportVenue: Boolean = false,
 ) {
   private val json = Json { ignoreUnknownKeys = true }
   private val loginMutex = Mutex()
@@ -480,21 +482,33 @@ private class LocalCgyyClient(
   private var accessToken: String? = null
 
   suspend fun getVenueSites(): JsonArray {
-    val params =
-        if (reservationRoleId == null) {
-          mapOf("page" to -1, "size" to -1)
-        } else {
-          mapOf("page" to -1, "size" to -1, "reservationRoleId" to reservationRoleId)
-        }
-    val data =
-        requestJson(
-                operation = "list_sites",
-                method = HttpMethod.Get,
-                path = "/api/front/website/venues",
-                params = params,
-            )
-            .data
-    return data.asVenueSiteArray()
+    return if (sportVenue) {
+      // 运动场（venue-server）：场地列表走 /api/venue_sites，返回 data.content 扁平 site 数组
+      val data =
+          requestJson(
+                  operation = "list_sites",
+                  method = HttpMethod.Get,
+                  path = "/api/venue_sites",
+                  params = mapOf("page" to -1, "size" to -1),
+              )
+              .data
+      data.asFlatVenueSiteArray()
+    } else {
+      val params =
+          if (reservationRoleId == null) {
+            mapOf("page" to -1, "size" to -1)
+          } else {
+            mapOf("page" to -1, "size" to -1, "reservationRoleId" to reservationRoleId)
+          }
+      requestJson(
+              operation = "list_sites",
+              method = HttpMethod.Get,
+              path = "/api/front/website/venues",
+              params = params,
+          )
+          .data
+          .asVenueSiteArray()
+    }
   }
 
   suspend fun getPurposeTypesRaw(): JsonElement? =
@@ -874,6 +888,29 @@ private class LocalCgyyClient(
                 }
               }
               .orEmpty()
+        }
+    )
+  }
+
+  /** 运动场（venue-server）场地列表：data.content 里每个元素本身就是场地（扁平结构）。 */
+  private fun JsonElement?.asFlatVenueSiteArray(): JsonArray {
+    val content =
+        when (this) {
+          null -> emptyList()
+          is JsonObject -> this["content"]?.jsonArray.orEmpty()
+          is JsonArray -> this
+          else -> emptyList()
+        }
+    return JsonArray(
+        content.mapNotNull { siteElement ->
+          val site = siteElement.jsonObject
+          val siteId = site["id"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
+          buildJsonObject {
+            put("id", JsonPrimitive(siteId))
+            put("siteName", JsonPrimitive(site["siteName"]?.jsonPrimitive?.contentOrNull.orEmpty()))
+            put("venueName", JsonPrimitive(site["venueName"]?.jsonPrimitive?.contentOrNull.orEmpty()))
+            put("campusName", JsonPrimitive(site["campusName"]?.jsonPrimitive?.contentOrNull.orEmpty()))
+          }
         }
     )
   }
