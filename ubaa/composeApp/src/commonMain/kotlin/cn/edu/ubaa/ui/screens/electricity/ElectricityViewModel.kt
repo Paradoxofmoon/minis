@@ -146,10 +146,11 @@ class ElectricityViewModel(
     _state.value = _state.value.copy(selectedMeter = meter)
   }
 
-  /** 把查询到电表的 identityNo 填入缴费 tab。 */
+  /** 把查询到电表的 identityNo 填入缴费 tab 并自动查询。 */
   fun useSelectedMeterForPay() {
     val identityNo = _state.value.selectedMeter?.identityNo ?: return
     onMeterNumberChange(identityNo)
+    queryMeter()
   }
 
   // ===== 缴费 tab =====

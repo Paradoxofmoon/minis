@@ -57,7 +57,10 @@ fun ElectricityScreen(
               onFloorSelect = onFloorSelect,
               onRoomSelect = onRoomSelect,
               onMeterSelect = onMeterSelect,
-              onUseMeterForPay = onUseMeterForPay,
+              onUseMeterForPay = {
+                selectedTab = 1
+                onUseMeterForPay()
+              },
               onRetry = onRetryTree,
           )
       1 ->

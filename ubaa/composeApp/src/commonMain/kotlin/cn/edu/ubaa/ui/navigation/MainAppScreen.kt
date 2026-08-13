@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -12,6 +13,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -150,6 +152,10 @@ fun MainAppScreen(
   val uriHandler = LocalUriHandler.current
   val navController = rememberNavigationController()
   val currentScreen = navController.currentScreen
+
+  // 普通/高级功能列表的滚动位置（独立于 Screen 生命周期保存，避免返回后重置到顶部）
+  val regularGridState = rememberSaveable(saver = LazyGridState.Saver) { LazyGridState() }
+  val advancedGridState = rememberSaveable(saver = LazyGridState.Saver) { LazyGridState() }
   val cgyyScreens = remember {
     setOf(
         AppScreen.CGYY_HOME,
@@ -876,12 +882,14 @@ fun MainAppScreen(
                   onNetworkClick = { navigateTo(AppScreen.NETWORK) },
                   onZfwClick = { navigateTo(AppScreen.ZFW) },
                   onElectricityClick = { navigateTo(AppScreen.ELECTRICITY) },
+                  gridState = regularGridState,
               )
           AppScreen.ADVANCED ->
               AdvancedFeaturesScreen(
                   onCgyyClick = { navigateTo(AppScreen.CGYY_HOME) },
                   onEvaluationClick = { navigateTo(AppScreen.EVALUATION) },
                   onYgdkClick = { navigateTo(AppScreen.YGDK_HOME) },
+                  gridState = advancedGridState,
               )
           AppScreen.MY -> MyScreen(userInfo = userInfo)
           AppScreen.SETTINGS ->

@@ -3,6 +3,7 @@ package cn.edu.ubaa.ui.screens.menu
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
@@ -48,6 +49,7 @@ fun RegularFeaturesScreen(
     onNetworkClick: () -> Unit,
     onZfwClick: () -> Unit,
     onElectricityClick: () -> Unit,
+    gridState: LazyGridState,
     modifier: Modifier = Modifier,
 ) {
   val features =
@@ -136,6 +138,7 @@ fun RegularFeaturesScreen(
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
+        state = gridState,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
