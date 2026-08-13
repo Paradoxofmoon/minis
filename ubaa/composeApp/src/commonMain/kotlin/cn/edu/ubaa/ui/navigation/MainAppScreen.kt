@@ -38,6 +38,7 @@ import cn.edu.ubaa.ui.screens.network.NetworkScreen
 import cn.edu.ubaa.ui.screens.network.NetworkUiState
 import cn.edu.ubaa.ui.screens.network.NetworkViewModel
 import cn.edu.ubaa.ui.screens.electricity.ElectricityScreen
+import cn.edu.ubaa.ui.screens.electricity.ElectricityUiState
 import cn.edu.ubaa.ui.screens.electricity.ElectricityViewModel
 import cn.edu.ubaa.ui.screens.zfw.ZfwScreen
 import cn.edu.ubaa.ui.screens.zfw.ZfwUiState
