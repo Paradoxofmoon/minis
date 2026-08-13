@@ -282,7 +282,9 @@ fun MainAppScreen(
   val cgyyUiState = cgyyViewModel?.uiState?.collectAsState()?.value ?: CgyyUiState()
   val sportViewModel: CgyyViewModel? =
       if (shouldKeepSportViewModel) {
-        viewModel(key = "sport-${userData.schoolid}") { CgyyViewModel(cgyyApi = SportVenueApi()) }
+        viewModel(key = "sport-${userData.schoolid}") {
+          CgyyViewModel(cgyyApi = SportVenueApi(), venueLabel = "运动场地")
+        }
       } else {
         null
       }
@@ -1094,6 +1096,7 @@ fun MainAppScreen(
                     navigateTo(AppScreen.SPORT_ORDERS)
                   },
                   onLockCodeClick = { navigateTo(AppScreen.SPORT_LOCK_CODE) },
+                  venueLabel = "运动场地",
               )
           AppScreen.SPORT_RESERVE_PICKER ->
               sportViewModel?.let {

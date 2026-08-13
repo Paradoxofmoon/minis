@@ -52,6 +52,7 @@ internal class LocalCgyyApiBackend(
   private val clientMutex = Mutex()
   private val clientCache = mutableMapOf<String, LocalCgyyClient>()
 
+  private val venueLabel = if (sportVenue) "运动场地" else "研讨室"
   private val baseUrl = if (sportVenue) LocalCgyyClient.SPORT_BASE_URL else LocalCgyyClient.DEFAULT_BASE_URL
   private val ssoCookieName =
       if (sportVenue) LocalCgyyClient.SPORT_SSO_COOKIE_NAME else LocalCgyyClient.DEFAULT_SSO_COOKIE_NAME
@@ -63,12 +64,12 @@ internal class LocalCgyyApiBackend(
   }
 
   override suspend fun getVenueSites(): Result<List<CgyyVenueSiteDto>> =
-      execute("研讨室场地列表加载失败，请稍后重试") { _, client ->
+      execute("${venueLabel}场地列表加载失败，请稍后重试") { _, client ->
         client.getVenueSites().map { mapVenueSite(it.jsonObject) }
       }
 
   override suspend fun getPurposeTypes(): Result<List<CgyyPurposeTypeDto>> =
-      execute("研讨室活动类型加载失败，请稍后重试") { _, client ->
+      execute("${venueLabel}活动类型加载失败，请稍后重试") { _, client ->
         val dynamic = runCatching { parsePurposeTypes(client.getPurposeTypesRaw()) }.getOrNull()
         dynamic?.takeIf { it.isNotEmpty() } ?: fallbackPurposeTypes()
       }
@@ -77,7 +78,7 @@ internal class LocalCgyyApiBackend(
       venueSiteId: Int,
       date: String,
   ): Result<CgyyDayInfoResponse> =
-      execute("研讨室可预约信息加载失败，请稍后重试") { _, client ->
+      execute("${venueLabel}可预约信息加载失败，请稍后重试") { _, client ->
         mapDayInfo(
             venueSiteId = venueSiteId,
             reservationDate = date,
@@ -88,7 +89,7 @@ internal class LocalCgyyApiBackend(
   override suspend fun submitReservation(
       request: CgyyReservationSubmitRequest
   ): Result<CgyyReservationSubmitResponse> =
-      execute("研讨室预约提交失败，请稍后重试") { _, client ->
+      execute("${venueLabel}预约提交失败，请稍后重试") { _, client ->
         validateRequest(request)
 
         val dayInfo = getDayInfo(request.venueSiteId, request.reservationDate).getOrThrow()
@@ -187,7 +188,7 @@ internal class LocalCgyyApiBackend(
       }
 
   override suspend fun getMyOrders(page: Int, size: Int): Result<CgyyOrdersPageResponse> =
-      execute("研讨室预约列表加载失败，请稍后重试") { _, client ->
+      execute("${venueLabel}预约列表加载失败，请稍后重试") { _, client ->
         val data = client.getMineOrders(page, size)
         CgyyOrdersPageResponse(
             content = data["content"]?.jsonArray?.map { mapOrder(it.jsonObject) } ?: emptyList(),
@@ -199,10 +200,10 @@ internal class LocalCgyyApiBackend(
       }
 
   override suspend fun getOrderDetail(orderId: Int): Result<CgyyOrderDto> =
-      execute("研讨室预约详情加载失败，请稍后重试") { _, client -> mapOrder(client.getOrderDetail(orderId)) }
+      execute("${venueLabel}预约详情加载失败，请稍后重试") { _, client -> mapOrder(client.getOrderDetail(orderId)) }
 
   override suspend fun cancelOrder(orderId: Int): Result<CgyyReservationSubmitResponse> =
-      execute("研讨室预约取消失败，请稍后重试") { _, client ->
+      execute("${venueLabel}预约取消失败，请稍后重试") { _, client ->
         val response = client.cancelOrder(orderId)
         CgyyReservationSubmitResponse(
             success = true,
@@ -212,7 +213,7 @@ internal class LocalCgyyApiBackend(
       }
 
   override suspend fun getLockCode(): Result<CgyyLockCodeResponse> =
-      execute("研讨室门锁密码加载失败，请稍后重试") { _, client ->
+      execute("${venueLabel}门锁密码加载失败，请稍后重试") { _, client ->
         CgyyLockCodeResponse(rawData = client.getLockCode())
       }
 
@@ -503,7 +504,7 @@ private class LocalCgyyClient(
           .data
           ?.jsonObject
           ?: throw LocalCgyyApiException(
-              "研讨室可用性响应为空",
+              "${venueLabel}可用性响应为空",
               "day_info_failed",
               HttpStatusCode.BadGateway,
           )
@@ -715,7 +716,7 @@ private class LocalCgyyClient(
     if (isLoginRedirect(response, body)) {
       accessToken = null
       if (!allowRetry) {
-        throw LocalCgyyApiException("研讨室系统登录状态失效", "unauthenticated", HttpStatusCode.Unauthorized)
+        throw LocalCgyyApiException("${venueLabel}系统登录状态失效", "unauthenticated", HttpStatusCode.Unauthorized)
       }
       ensureBusinessLogin(forceRefresh = true)
       return requestJson(
@@ -734,7 +735,7 @@ private class LocalCgyyClient(
         runCatching { json.parseToJsonElement(body).jsonObject }
             .getOrElse {
               throw LocalCgyyApiException(
-                  "研讨室系统返回了非 JSON 响应",
+                  "${venueLabel}系统返回了非 JSON 响应",
                   "cgyy_error",
                   HttpStatusCode.BadGateway,
               )
@@ -742,7 +743,7 @@ private class LocalCgyyClient(
     val code = raw["code"]?.jsonPrimitive?.intOrNull
     if (code != 200) {
       throw LocalCgyyApiException(
-          raw["message"]?.jsonPrimitive?.contentOrNull ?: "研讨室系统请求失败",
+          raw["message"]?.jsonPrimitive?.contentOrNull ?: "${venueLabel}系统请求失败",
           "cgyy_error",
           HttpStatusCode.BadGateway,
       )
@@ -783,7 +784,7 @@ private class LocalCgyyClient(
               ?.value
               ?.takeIf { it.isNotBlank() }
               ?: throw LocalCgyyApiException(
-                  "未获取到研讨室 SSO Token",
+                  "未获取到预约系统 SSO Token",
                   "unauthenticated",
                   HttpStatusCode.Unauthorized,
               )
@@ -806,7 +807,7 @@ private class LocalCgyyClient(
               ?.jsonPrimitive
               ?.contentOrNull
               ?: throw LocalCgyyApiException(
-                  "研讨室登录成功但未返回 access_token",
+                  "${venueLabel}登录成功但未返回 access_token",
                   "unauthenticated",
                   HttpStatusCode.Unauthorized,
               )

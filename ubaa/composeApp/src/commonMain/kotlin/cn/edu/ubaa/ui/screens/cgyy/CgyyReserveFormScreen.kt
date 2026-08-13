@@ -42,7 +42,7 @@ fun CgyyReserveFormScreen(
 
   val summary = uiState.reservationSummary
   if (summary == null) {
-    CgyyEmptyState("还没有选择预约时段", "请先返回上一页选择研讨室、日期和时段。")
+    CgyyEmptyState("还没有选择预约时段", "请先返回上一页选择${viewModel.venueLabel}、日期和时段。")
     return
   }
 

@@ -21,6 +21,7 @@ fun CgyyHomeScreen(
     onReserveClick: () -> Unit,
     onOrdersClick: () -> Unit,
     onLockCodeClick: () -> Unit,
+    venueLabel: String = "研讨室",
 ) {
   Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
     LazyVerticalGrid(
@@ -32,7 +33,7 @@ fun CgyyHomeScreen(
     ) {
       item {
         BykcFeatureCard(
-            title = "预约研讨室",
+            title = "预约$venueLabel",
             description = "选择校区、楼栋和时段",
             icon = Icons.Default.DateRange,
             onClick = onReserveClick,

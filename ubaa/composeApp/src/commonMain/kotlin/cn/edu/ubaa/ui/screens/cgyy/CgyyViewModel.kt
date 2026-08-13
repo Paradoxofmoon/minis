@@ -71,6 +71,7 @@ class CgyyViewModel(
       val day = now.day.toString().padStart(2, '0')
       "${now.year}-$month-$day"
     },
+    val venueLabel: String = "研讨室",
 ) : ViewModel() {
   companion object {
     const val ALL_CAMPUSES = "全部"
@@ -270,7 +271,7 @@ class CgyyViewModel(
 
   fun selectionHint(): String =
       when {
-        _uiState.value.selectedSiteId == null -> "请先选择研讨室"
+        _uiState.value.selectedSiteId == null -> "请先选择$venueLabel"
         _uiState.value.selectedDate.isBlank() -> "请先选择预约日期"
         _uiState.value.selections.isEmpty() -> "请至少选择一个可预约时段"
         else -> "已完成选择，可以进入下一步"
