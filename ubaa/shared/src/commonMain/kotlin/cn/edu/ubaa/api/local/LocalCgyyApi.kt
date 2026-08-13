@@ -225,6 +225,7 @@ internal class LocalCgyyApiBackend(
               baseUrl = baseUrl,
               ssoCookieName = ssoCookieName,
               referrerUrl = referrerUrl,
+              venueLabel = venueLabel,
           )
         }
       }
@@ -468,6 +469,7 @@ private class LocalCgyyClient(
     private val baseUrl: String = DEFAULT_BASE_URL,
     private val ssoCookieName: String = DEFAULT_SSO_COOKIE_NAME,
     private val referrerUrl: String = DEFAULT_REFERRER_URL,
+    private val venueLabel: String = "研讨室",
 ) {
   private val json = Json { ignoreUnknownKeys = true }
   private val loginMutex = Mutex()
