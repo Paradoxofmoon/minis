@@ -105,7 +105,7 @@ class ElectricityApi(private val engine: HttpClientEngine? = null) {
     return try {
       json.decodeFromString<List<ElectricityMeter>>(body)
     } catch (e: Exception) {
-      throw ElectricityException("用电查询数据解析失败，页面结构可能已变更")
+      throw ElectricityException("用电查询数据解析失败: ${e.message ?: e::class.simpleName}. 前200字节=${body.take(200)}")
     }
   }
 
@@ -123,7 +123,7 @@ class ElectricityApi(private val engine: HttpClientEngine? = null) {
     return try {
       json.decodeFromString<ElectricityMeterInfo>(body)
     } catch (e: Exception) {
-      throw ElectricityException("查询电表返回格式异常，请稍后重试")
+      throw ElectricityException("查询电表返回格式异常: ${e.message ?: e::class.simpleName}. 原始=${body.take(300)}")
     }
   }
 

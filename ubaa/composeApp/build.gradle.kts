@@ -7,6 +7,7 @@ plugins {
   alias(libs.plugins.androidKotlinMultiplatformLibrary)
   alias(libs.plugins.composeMultiplatform)
   alias(libs.plugins.composeCompiler)
+  alias(libs.plugins.kotlinSerialization)
   // alias(libs.plugins.composeHotReload)
 }
 
@@ -73,6 +74,7 @@ kotlin {
       implementation(libs.coil3.compose)
       implementation(libs.coil3.network.ktor)
       implementation(libs.ktor.serialization.kotlinx.json)
+      implementation(libs.kotlinx.serialization.json)
       implementation(libs.ktor.client.core)
       implementation(libs.ktor.client.content.negotiation)
       implementation(libs.ktor.client.logging)
