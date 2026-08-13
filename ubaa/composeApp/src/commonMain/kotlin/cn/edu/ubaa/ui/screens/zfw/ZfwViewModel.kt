@@ -39,7 +39,7 @@ data class ZfwUiState(
     val isLoadingPayCaptcha: Boolean = false,
     val isSubmittingPay: Boolean = false,
     val isLoadingPayPage: Boolean = false,
-    val payQrcodeUrl: String? = null,
+    val payQrcodeBase64: String? = null,
     val payCashierUrl: String? = null,
 )
 
@@ -268,6 +268,7 @@ class ZfwViewModel(
   }
 
   /** 提交充值。 */
+  @OptIn(ExperimentalEncodingApi::class)
   fun submitPay() {
     val current = _state.value
     val pageData = payPageData
@@ -303,7 +304,7 @@ class ZfwViewModel(
                 _state.value =
                     _state.value.copy(
                         isSubmittingPay = false,
-                        payQrcodeUrl = result.qrcodeUrl,
+                        payQrcodeBase64 = result.qrcodeBytes?.let { Base64.encode(it) },
                         payCashierUrl = result.cashierUrl,
                         error = null,
                     )
@@ -333,7 +334,7 @@ class ZfwViewModel(
   fun dismissQrcode() {
     _state.value =
         _state.value.copy(
-            payQrcodeUrl = null,
+            payQrcodeBase64 = null,
             payCashierUrl = null,
             payCaptcha = "",
         )

@@ -69,9 +69,9 @@ fun ZfwScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
       when {
-        uiState.payQrcodeUrl != null ->
+        uiState.payQrcodeBase64 != null ->
             ZfwQrcodeContent(
-                qrcodeUrl = uiState.payQrcodeUrl!!,
+                qrcodeBase64 = uiState.payQrcodeBase64!!,
                 cashierUrl = uiState.payCashierUrl,
                 onBackClick = onDismissQrcode,
             )
@@ -480,13 +480,16 @@ private fun PayCaptchaRow(
   }
 }
 
+@OptIn(ExperimentalEncodingApi::class)
 @Composable
 private fun ZfwQrcodeContent(
-    qrcodeUrl: String,
+    qrcodeBase64: String?,
     cashierUrl: String?,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+  val imageBytes = remember(qrcodeBase64) { qrcodeBase64?.let { Base64.decode(it) } }
+
   Column(modifier = modifier.fillMaxWidth()) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
@@ -518,14 +521,25 @@ private fun ZfwQrcodeContent(
           modifier = Modifier.fillMaxWidth().padding(24.dp),
           contentAlignment = Alignment.Center,
       ) {
-        AsyncImage(
-            model = ImageRequest.Builder(LocalPlatformContext.current)
-                .data(qrcodeUrl)
-                .build(),
-            contentDescription = "支付二维码",
-            modifier = Modifier.fillMaxWidth(),
-            contentScale = ContentScale.Fit,
-        )
+        if (imageBytes != null) {
+          AsyncImage(
+              model = ImageRequest.Builder(LocalPlatformContext.current)
+                  .data(imageBytes)
+                  .memoryCachePolicy(coil3.request.CachePolicy.DISABLED)
+                  .diskCachePolicy(coil3.request.CachePolicy.DISABLED)
+                  .build(),
+              contentDescription = "支付二维码",
+              modifier = Modifier.fillMaxWidth(),
+              contentScale = ContentScale.Fit,
+          )
+        } else {
+          Text(
+              text = "二维码加载失败\n请复制收银台地址到浏览器打开",
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              textAlign = TextAlign.Center,
+          )
+        }
       }
     }
 

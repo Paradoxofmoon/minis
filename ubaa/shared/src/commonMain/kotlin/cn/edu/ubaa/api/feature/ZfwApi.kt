@@ -25,8 +25,11 @@ data class ZfwPayPageData(
 
 /** 充值提交结果。 */
 sealed class ZfwPayResult {
-  /** 充值成功，携带支付收银台地址（二维码 url 参数）。 */
-  data class Success(val cashierUrl: String, val qrcodeUrl: String) : ZfwPayResult()
+  /** 充值成功，携带支付收银台地址与二维码图片字节。 */
+  data class Success(
+      val cashierUrl: String,
+      val qrcodeBytes: ByteArray?,
+  ) : ZfwPayResult()
 
   /** 充值失败，携带错误信息。 */
   data class Failure(val message: String) : ZfwPayResult()

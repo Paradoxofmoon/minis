@@ -361,8 +361,9 @@ internal class LocalZfwApiBackend : ZfwApiBackend {
       // 提取支付收银台地址（cashier.cc-pay.cn）
       val cashierUrl = extractCashierUrl(html)
       if (cashierUrl != null) {
-        val qrcodeUrl = "$ZFW_BASE_URL/pay/qrcode?url=${encodeUrlParam(cashierUrl)}"
-        Result.success(ZfwPayResult.Success(cashierUrl = cashierUrl, qrcodeUrl = qrcodeUrl))
+        // 用带 session cookie 的 client 拉取二维码图片（/pay/qrcode 需要登录态）
+        val qrcodeBytes = fetchQrcodeImage(client, cashierUrl)
+        Result.success(ZfwPayResult.Success(cashierUrl = cashierUrl, qrcodeBytes = qrcodeBytes))
       } else {
         // 没有支付地址，可能是验证码错误或账号异常，尝试提取错误信息
         val error = extractPayError(html)
@@ -371,6 +372,24 @@ internal class LocalZfwApiBackend : ZfwApiBackend {
     } catch (e: Exception) {
       if (e is ApiCallException) Result.failure(e)
       else Result.failure(e.toUserFacingApiException("充值提交失败，请稍后重试"))
+    }
+  }
+
+  /** 用登录会话拉取支付二维码图片字节。失败返回 null，不阻断充值流程。 */
+  private suspend fun fetchQrcodeImage(client: HttpClient, cashierUrl: String): ByteArray? {
+    return try {
+      val qrcodeUrl = "$ZFW_BASE_URL/pay/qrcode?url=${encodeUrlParam(cashierUrl)}"
+      val response =
+          client.get(localUpstreamUrl(qrcodeUrl)) {
+            header(HttpHeaders.Accept, "image/png,image/*,*/*")
+          }
+      if (response.status == HttpStatusCode.OK) {
+        response.body<ByteArray>()
+      } else {
+        null
+      }
+    } catch (e: Exception) {
+      null
     }
   }
 
