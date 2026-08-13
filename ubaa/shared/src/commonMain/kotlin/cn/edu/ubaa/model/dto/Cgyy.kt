@@ -45,6 +45,7 @@ data class CgyySlotStatusDto(
     val alreadyNum: Int? = null,
     val takeUp: Boolean? = null,
     val takeUpExplain: String? = null,
+    val orderFee: Double? = null,
 )
 
 @Serializable

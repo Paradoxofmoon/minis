@@ -39,6 +39,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -374,6 +375,7 @@ internal class LocalCgyyApiBackend(
         alreadyNum = raw["alreadyNum"]?.jsonPrimitive?.intOrNull,
         takeUp = takeUp,
         takeUpExplain = raw["takeUpExplain"]?.jsonPrimitive?.contentOrNull,
+        orderFee = raw["orderFee"]?.jsonPrimitive?.doubleOrNull,
     )
   }
 
@@ -904,11 +906,13 @@ private class LocalCgyyClient(
     return JsonArray(
         content.mapNotNull { siteElement ->
           val site = siteElement.jsonObject
+          val venueName = site["venueName"]?.jsonPrimitive?.contentOrNull.orEmpty()
+          if (venueName !in SPORT_VENUE_NAMES) return@mapNotNull null
           val siteId = site["id"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
           buildJsonObject {
             put("id", JsonPrimitive(siteId))
             put("siteName", JsonPrimitive(site["siteName"]?.jsonPrimitive?.contentOrNull.orEmpty()))
-            put("venueName", JsonPrimitive(site["venueName"]?.jsonPrimitive?.contentOrNull.orEmpty()))
+            put("venueName", JsonPrimitive(venueName))
             put("campusName", JsonPrimitive(site["campusName"]?.jsonPrimitive?.contentOrNull.orEmpty()))
           }
         }
@@ -924,6 +928,19 @@ private class LocalCgyyClient(
     const val SPORT_BASE_URL = "https://cgyy.buaa.edu.cn/venue-server/"
     const val SPORT_SSO_COOKIE_NAME = "sso_buaa_token"
     const val SPORT_REFERRER_URL = "https://cgyy.buaa.edu.cn/venue/mobileReservation"
+
+    /** 体育场馆 venueName 白名单（过滤掉会议中心/教室/文艺馆/党课教学点等非体育场馆）。 */
+    val SPORT_VENUE_NAMES =
+        setOf(
+            "综合馆",
+            "体育馆主馆",
+            "体育馆训练馆(副馆)",
+            "北航体育馆",
+            "游泳馆",
+            "室外场地",
+            "小型体育场地",
+            "体育部场馆（敬请期待)",
+        )
   }
 }
 

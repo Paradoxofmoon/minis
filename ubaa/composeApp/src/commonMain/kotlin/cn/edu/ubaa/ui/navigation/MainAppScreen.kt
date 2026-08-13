@@ -39,6 +39,7 @@ import cn.edu.ubaa.ui.screens.cgyy.CgyyHomeScreen
 import cn.edu.ubaa.ui.screens.cgyy.CgyyUiState
 import cn.edu.ubaa.ui.screens.cgyy.CgyyViewModel
 import cn.edu.ubaa.api.feature.SportVenueApi
+import cn.edu.ubaa.ui.screens.sport.SportScreen
 import cn.edu.ubaa.ui.screens.network.NetworkScreen
 import cn.edu.ubaa.ui.screens.network.NetworkUiState
 import cn.edu.ubaa.ui.screens.network.NetworkViewModel
@@ -114,10 +115,6 @@ enum class AppScreen {
   CGYY_ORDERS,
   CGYY_LOCK_CODE,
   SPORT_HOME,
-  SPORT_RESERVE_PICKER,
-  SPORT_RESERVE_FORM,
-  SPORT_ORDERS,
-  SPORT_LOCK_CODE,
   CLASSROOM_QUERY,
   EVALUATION,
   SPOC_ASSIGNMENTS,
@@ -172,13 +169,7 @@ fun MainAppScreen(
     )
   }
   val sportScreens = remember {
-    setOf(
-        AppScreen.SPORT_HOME,
-        AppScreen.SPORT_RESERVE_PICKER,
-        AppScreen.SPORT_RESERVE_FORM,
-        AppScreen.SPORT_ORDERS,
-        AppScreen.SPORT_LOCK_CODE,
-    )
+    setOf(AppScreen.SPORT_HOME)
   }
   val ygdkScreens = remember { setOf(AppScreen.YGDK_HOME, AppScreen.YGDK_FORM) }
   val libBookScreens = remember {
@@ -288,7 +279,6 @@ fun MainAppScreen(
       } else {
         null
       }
-  val sportUiState = sportViewModel?.uiState?.collectAsState()?.value ?: CgyyUiState()
   val libBookViewModel: LibBookViewModel? =
       if (shouldKeepLibBookViewModel) {
         viewModel(key = "libbook-${userData.schoolid}") { LibBookViewModel() }
@@ -496,10 +486,6 @@ fun MainAppScreen(
               AppScreen.CGYY_ORDERS,
               AppScreen.CGYY_LOCK_CODE,
               AppScreen.SPORT_HOME,
-              AppScreen.SPORT_RESERVE_PICKER,
-              AppScreen.SPORT_RESERVE_FORM,
-              AppScreen.SPORT_ORDERS,
-              AppScreen.SPORT_LOCK_CODE,
               AppScreen.EVALUATION,
               AppScreen.YGDK_HOME,
               AppScreen.YGDK_FORM -> BottomNavTab.ADVANCED
@@ -679,13 +665,7 @@ fun MainAppScreen(
         cgyyViewModel?.ensureInitialDataLoaded(forceRefresh = true)
         cgyyViewModel?.ensureOrdersLoaded(forceRefresh = true)
       }
-      AppScreen.SPORT_HOME,
-      AppScreen.SPORT_RESERVE_PICKER,
-      AppScreen.SPORT_RESERVE_FORM -> sportViewModel?.ensureInitialDataLoaded(forceRefresh = true)
-      AppScreen.SPORT_ORDERS -> {
-        sportViewModel?.ensureInitialDataLoaded(forceRefresh = true)
-        sportViewModel?.ensureOrdersLoaded(forceRefresh = true)
-      }
+      AppScreen.SPORT_HOME -> sportViewModel?.ensureInitialDataLoaded(forceRefresh = true)
       AppScreen.EVALUATION -> evaluationViewModel?.ensureLoaded(forceRefresh = true)
       AppScreen.SPOC_ASSIGNMENTS -> spocViewModel.ensureAssignmentsLoaded(forceRefresh = true)
       AppScreen.JUDGE_ASSIGNMENTS -> judgeViewModel.ensureAssignmentsLoaded(forceRefresh = true)
@@ -748,19 +728,7 @@ fun MainAppScreen(
         cgyyViewModel?.ensureInitialDataLoaded()
         cgyyViewModel?.ensureLockCodeLoaded(forceRefresh = true)
       }
-      AppScreen.SPORT_HOME,
-      AppScreen.SPORT_RESERVE_PICKER,
-      AppScreen.SPORT_RESERVE_FORM -> {
-        sportViewModel?.ensureInitialDataLoaded()
-      }
-      AppScreen.SPORT_ORDERS -> {
-        sportViewModel?.ensureInitialDataLoaded()
-        sportViewModel?.ensureOrdersLoaded()
-      }
-      AppScreen.SPORT_LOCK_CODE -> {
-        sportViewModel?.ensureInitialDataLoaded()
-        sportViewModel?.ensureLockCodeLoaded(forceRefresh = true)
-      }
+      AppScreen.SPORT_HOME -> sportViewModel?.ensureInitialDataLoaded()
       AppScreen.EVALUATION -> evaluationViewModel?.ensureLoaded()
       AppScreen.SPOC_ASSIGNMENTS,
       AppScreen.SPOC_ASSIGNMENT_DETAIL -> spocViewModel.ensureAssignmentsLoaded()
@@ -812,10 +780,6 @@ fun MainAppScreen(
         AppScreen.CGYY_ORDERS -> "我的预约"
         AppScreen.CGYY_LOCK_CODE -> "查看密码"
         AppScreen.SPORT_HOME -> "运动场馆"
-        AppScreen.SPORT_RESERVE_PICKER -> "预约运动场地"
-        AppScreen.SPORT_RESERVE_FORM -> "填写预约信息"
-        AppScreen.SPORT_ORDERS -> "我的预约"
-        AppScreen.SPORT_LOCK_CODE -> "查看密码"
         AppScreen.CLASSROOM_QUERY -> "空教室查询"
         AppScreen.EVALUATION -> "自动评教"
         AppScreen.SPOC_ASSIGNMENTS -> "SPOC作业"
@@ -1089,32 +1053,7 @@ fun MainAppScreen(
           AppScreen.CGYY_ORDERS -> cgyyViewModel?.let { CgyyOrdersScreen(viewModel = it) }
           AppScreen.CGYY_LOCK_CODE -> cgyyViewModel?.let { CgyyLockCodeScreen(viewModel = it) }
           AppScreen.SPORT_HOME ->
-              CgyyHomeScreen(
-                  onReserveClick = { navigateTo(AppScreen.SPORT_RESERVE_PICKER) },
-                  onOrdersClick = {
-                    sportViewModel?.ensureOrdersLoaded()
-                    navigateTo(AppScreen.SPORT_ORDERS)
-                  },
-                  onLockCodeClick = { navigateTo(AppScreen.SPORT_LOCK_CODE) },
-                  venueLabel = "运动场地",
-              )
-          AppScreen.SPORT_RESERVE_PICKER ->
-              sportViewModel?.let {
-                CgyyReservePickerScreen(
-                    viewModel = it,
-                    onNext = { navigateTo(AppScreen.SPORT_RESERVE_FORM) },
-                )
-              }
-          AppScreen.SPORT_RESERVE_FORM ->
-              sportViewModel?.let {
-                CgyyReserveFormScreen(
-                    viewModel = it,
-                    onBackToSelection = { navigateBack() },
-                    onSubmitSuccess = { navigateTo(AppScreen.SPORT_ORDERS) },
-                )
-              }
-          AppScreen.SPORT_ORDERS -> sportViewModel?.let { CgyyOrdersScreen(viewModel = it) }
-          AppScreen.SPORT_LOCK_CODE -> sportViewModel?.let { CgyyLockCodeScreen(viewModel = it) }
+              sportViewModel?.let { SportScreen(viewModel = it) }
           AppScreen.EVALUATION -> evaluationViewModel?.let { EvaluationScreen(viewModel = it) }
           AppScreen.YGDK_HOME ->
               ygdkViewModel?.let {
@@ -1284,10 +1223,6 @@ fun MainAppScreen(
                   AppScreen.CGYY_ORDERS,
                   AppScreen.CGYY_LOCK_CODE,
                   AppScreen.SPORT_HOME,
-                  AppScreen.SPORT_RESERVE_PICKER,
-                  AppScreen.SPORT_RESERVE_FORM,
-                  AppScreen.SPORT_ORDERS,
-                  AppScreen.SPORT_LOCK_CODE,
                   AppScreen.EVALUATION,
                   AppScreen.YGDK_HOME,
                   AppScreen.YGDK_FORM,
