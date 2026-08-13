@@ -26,37 +26,43 @@ private const val BASE_URL = "https://shsd.buaa.edu.cn"
 
 // ===== DTO =====
 
-/** QueryIdData 返回的级联树叶子节点（电表）。 */
+/** QueryIdData 返回的级联树叶子节点（电表）。字段与 shsd 实际返回严格对齐。 */
 @Serializable
 data class ElectricityMeter(
+    val id: Int = 0,
+    @SerialName("identityNo") val identityNo: String = "",
+    val name: String = "",
+    val address: String = "",
+    @SerialName("meterNo") val meterNo: String = "",
     val campus: String = "",
     val building: String = "",
     val floor: String = "",
     val room: String = "",
-    val address: String = "",
-    @SerialName("meterNo") val meterNo: String = "",
-    @SerialName("identityNo") val identityNo: String = "",
 )
 
-/** /BuaaPay/Meter 返回的电表信息。 */
+/** /BuaaPay/Meter 返回的电表信息。字段与 shsd 实际返回严格对齐。 */
 @Serializable
 data class ElectricityMeterInfo(
-    val id: String = "",
-    val serial: String? = null,
+    val id: Int = 0,
+    @SerialName("meterNo") val meterNo: String? = null,
     val compus: String? = null,
     val building: String? = null,
     val room: String? = null,
+    val name: String? = null,
     val address: String? = null,
-    val price: Double = 0.0,
-    /** 表计倍率 / 最小下发电量单位（整数度）。 */
-    val ct: Int = 1,
-    val readingTime: String? = null,
-    /** 剩余电量（度）。 */
-    val remain: Double? = null,
     /** 上次加电状态：<0 或 >2 为未知。 */
     val payStatus: Int = -1,
+    val readingTime: String? = null,
+    /** 剩余电量（度）。实际返回 int。 */
+    val remain: Int = 0,
+    /** 表计倍率 / 最小下发电量单位（整数度）。 */
+    val ct: Int = 1,
+    /** 电价（元/度）。 */
+    val price: Double = 0.0,
+    val serial: String? = null,
     /** 存在未完成订单时返回，否则 null。 */
     val payUrl: String? = null,
+    val money: Double = 0.0,
 )
 
 /** 支付下单结果。 */
@@ -127,13 +133,13 @@ class ElectricityApi(private val engine: HttpClientEngine? = null) {
    * @param meterId 电表 id（/BuaaPay/Meter 返回的 id）。
    * @param writePower 下发电量（整数度，必须 >= 1）。
    */
-  suspend fun submitPay(meterId: String, writePower: Int): ElectricityPayResult {
+  suspend fun submitPay(meterId: Int, writePower: Int): ElectricityPayResult {
     val response =
         client.submitForm(
             url = "$BASE_URL/BuaaPay/Pay",
             formParameters =
                 Parameters.build {
-                  append("id", meterId)
+                  append("id", meterId.toString())
                   append("writePower", writePower.toString())
                 },
         ) {
@@ -151,7 +157,7 @@ class ElectricityApi(private val engine: HttpClientEngine? = null) {
   }
 
   /** 取消未完成的支付订单。 */
-  suspend fun cancelPay(id: String, serial: String) {
+  suspend fun cancelPay(id: Int, serial: String) {
     val response =
         client.delete("$BASE_URL/BuaaPay/CancelPay") {
           parameter("id", id)

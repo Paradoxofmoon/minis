@@ -386,7 +386,7 @@ private fun MeterInfoCard(info: ElectricityMeterInfo) {
       Text("电表信息", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
       info.address?.let { Text("用电地址：$it", style = MaterialTheme.typography.bodyMedium) }
       Text(
-          "剩余电量：${info.remain ?: "未知"} 度",
+          "剩余电量：${info.remain} 度",
           style = MaterialTheme.typography.bodyMedium,
           color = MaterialTheme.colorScheme.primary,
       )
