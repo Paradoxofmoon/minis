@@ -283,7 +283,7 @@ fun MainAppScreen(
   val sportViewModel: CgyyViewModel? =
       if (shouldKeepSportViewModel) {
         viewModel(key = "sport-${userData.schoolid}") {
-          CgyyViewModel(cgyyApi = SportVenueApi(), venueLabel = "运动场地")
+          CgyyViewModel(cgyyApi = SportVenueApi(), venueLabel = "运动场地", spaceLabel = "场地")
         }
       } else {
         null

@@ -53,6 +53,7 @@ internal class LocalCgyyApiBackend(
   private val clientCache = mutableMapOf<String, LocalCgyyClient>()
 
   private val venueLabel = if (sportVenue) "运动场地" else "研讨室"
+  private val reservationRoleId: Int? = if (sportVenue) null else 3
   private val baseUrl = if (sportVenue) LocalCgyyClient.SPORT_BASE_URL else LocalCgyyClient.DEFAULT_BASE_URL
   private val ssoCookieName =
       if (sportVenue) LocalCgyyClient.SPORT_SSO_COOKIE_NAME else LocalCgyyClient.DEFAULT_SSO_COOKIE_NAME
@@ -226,6 +227,7 @@ internal class LocalCgyyApiBackend(
               ssoCookieName = ssoCookieName,
               referrerUrl = referrerUrl,
               venueLabel = venueLabel,
+              reservationRoleId = reservationRoleId,
           )
         }
       }
@@ -470,6 +472,7 @@ private class LocalCgyyClient(
     private val ssoCookieName: String = DEFAULT_SSO_COOKIE_NAME,
     private val referrerUrl: String = DEFAULT_REFERRER_URL,
     private val venueLabel: String = "研讨室",
+    private val reservationRoleId: Int? = 3,
 ) {
   private val json = Json { ignoreUnknownKeys = true }
   private val loginMutex = Mutex()
@@ -477,12 +480,18 @@ private class LocalCgyyClient(
   private var accessToken: String? = null
 
   suspend fun getVenueSites(): JsonArray {
+    val params =
+        if (reservationRoleId == null) {
+          mapOf("page" to -1, "size" to -1)
+        } else {
+          mapOf("page" to -1, "size" to -1, "reservationRoleId" to reservationRoleId)
+        }
     val data =
         requestJson(
                 operation = "list_sites",
                 method = HttpMethod.Get,
                 path = "/api/front/website/venues",
-                params = mapOf("page" to -1, "size" to -1, "reservationRoleId" to 3),
+                params = params,
             )
             .data
     return data.asVenueSiteArray()

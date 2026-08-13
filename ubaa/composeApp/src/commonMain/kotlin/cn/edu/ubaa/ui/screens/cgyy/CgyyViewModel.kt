@@ -72,6 +72,7 @@ class CgyyViewModel(
       "${now.year}-$month-$day"
     },
     val venueLabel: String = "研讨室",
+    val spaceLabel: String = "教室",
 ) : ViewModel() {
   companion object {
     const val ALL_CAMPUSES = "全部"

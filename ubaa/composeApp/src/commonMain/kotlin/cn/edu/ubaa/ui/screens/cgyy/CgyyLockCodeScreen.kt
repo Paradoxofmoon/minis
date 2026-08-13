@@ -133,7 +133,7 @@ fun CgyyLockCodeScreen(viewModel: CgyyViewModel) {
         CgyySectionCard(title = "预约信息") {
           CgyyInfoLine("预约单号", parsedLockCode.tradeNo)
           CgyyInfoLine("场地", parsedLockCode.venueText)
-          CgyyInfoLine("教室", parsedLockCode.spaceName)
+          CgyyInfoLine(viewModel.spaceLabel, parsedLockCode.spaceName)
           CgyyInfoLine("预约人", parsedLockCode.orderName)
           CgyyInfoLine("预约日期", parsedLockCode.reservationDate)
           CgyyInfoLine("时段", parsedLockCode.timeRangeText)
