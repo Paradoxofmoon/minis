@@ -48,6 +48,10 @@ kotlin {
     androidMain.dependencies {
       implementation("org.jetbrains.compose.ui:ui-tooling-preview:$composeVersion")
       implementation(libs.androidx.activity.compose)
+      implementation(libs.ktor.client.okhttp)
+    }
+    iosMain.dependencies {
+      implementation(libs.ktor.client.darwin)
     }
     commonMain.dependencies {
       implementation("org.jetbrains.compose.runtime:runtime:$composeVersion")
@@ -69,6 +73,9 @@ kotlin {
       implementation(libs.coil3.compose)
       implementation(libs.coil3.network.ktor)
       implementation(libs.ktor.serialization.kotlinx.json)
+      implementation(libs.ktor.client.core)
+      implementation(libs.ktor.client.content.negotiation)
+      implementation(libs.ktor.client.logging)
       implementation(projects.shared)
       implementation("org.jetbrains.kotlin:kotlin-metadata-jvm")
     }
@@ -78,9 +85,17 @@ kotlin {
       implementation(libs.kotlinx.coroutines.test)
     }
 
+    jsMain.dependencies {
+      implementation(libs.ktor.client.js)
+    }
+    wasmJsMain.dependencies {
+      implementation(libs.ktor.client.js)
+    }
+
     jvmMain.dependencies {
       implementation(compose.desktop.currentOs)
       implementation(libs.kotlinx.coroutinesSwing)
+      implementation(libs.ktor.client.cio)
     }
   }
 }

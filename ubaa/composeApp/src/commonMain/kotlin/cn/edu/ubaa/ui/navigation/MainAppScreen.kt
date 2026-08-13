@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cn.edu.ubaa.api.ConnectionMode
@@ -37,6 +38,7 @@ import cn.edu.ubaa.ui.screens.network.NetworkScreen
 import cn.edu.ubaa.ui.screens.network.NetworkUiState
 import cn.edu.ubaa.ui.screens.network.NetworkViewModel
 import cn.edu.ubaa.ui.screens.electricity.ElectricityScreen
+import cn.edu.ubaa.ui.screens.electricity.ElectricityViewModel
 import cn.edu.ubaa.ui.screens.zfw.ZfwScreen
 import cn.edu.ubaa.ui.screens.zfw.ZfwUiState
 import cn.edu.ubaa.ui.screens.zfw.ZfwViewModel
@@ -144,6 +146,7 @@ fun MainAppScreen(
     modifier: Modifier = Modifier,
 ) {
   val scope = rememberCoroutineScope()
+  val uriHandler = LocalUriHandler.current
   val navController = rememberNavigationController()
   val currentScreen = navController.currentScreen
   val cgyyScreens = remember {
@@ -226,6 +229,15 @@ fun MainAppScreen(
         null
       }
   val zfwUiState = zfwViewModel?.state?.collectAsState()?.value ?: ZfwUiState()
+
+  val electricityViewModel: ElectricityViewModel? =
+      if (currentScreen == AppScreen.ELECTRICITY) {
+        viewModel(key = "electricity") { ElectricityViewModel() }
+      } else {
+        null
+      }
+  val electricityUiState =
+      electricityViewModel?.state?.collectAsState()?.value ?: ElectricityUiState()
 
   val signinViewModel: SigninViewModel =
       viewModel(key = "signin-${userData.schoolid}") { SigninViewModel() }
@@ -1126,7 +1138,29 @@ fun MainAppScreen(
                      onDismissQrcode = viewModel::dismissQrcode,
                  )
                }
-           AppScreen.ELECTRICITY -> ElectricityScreen()
+           AppScreen.ELECTRICITY ->
+              electricityViewModel?.let { viewModel ->
+                ElectricityScreen(
+                    uiState = electricityUiState,
+                    onCampusSelect = viewModel::onCampusSelect,
+                    onBuildingSelect = viewModel::onBuildingSelect,
+                    onFloorSelect = viewModel::onFloorSelect,
+                    onRoomSelect = viewModel::onRoomSelect,
+                    onMeterSelect = viewModel::onMeterSelect,
+                    onUseMeterForPay = viewModel::useSelectedMeterForPay,
+                    onMeterNumberChange = viewModel::onMeterNumberChange,
+                    onHistorySelect = viewModel::onHistorySelect,
+                    onHistoryRemove = viewModel::onHistoryRemove,
+                    onQueryMeter = viewModel::queryMeter,
+                    onPowerChange = viewModel::onPowerChange,
+                    onSubmitPay = viewModel::submitPay,
+                    onContinuePendingPay = viewModel::continuePendingPay,
+                    onCancelPendingPay = viewModel::cancelPendingPay,
+                    onDismissPayUrl = viewModel::dismissPayUrl,
+                    onOpenPayUrl = { url -> uriHandler.openUri(url) },
+                    onRetryTree = viewModel::loadMeterTree,
+                )
+              }
         }
       }
 
