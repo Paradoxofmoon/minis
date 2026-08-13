@@ -73,6 +73,7 @@ class CgyyViewModel(
     },
     val venueLabel: String = "研讨室",
     val spaceLabel: String = "教室",
+    val isSportVenue: Boolean = false,
 ) : ViewModel() {
   companion object {
     const val ALL_CAMPUSES = "全部"
@@ -281,15 +282,20 @@ class CgyyViewModel(
   fun submitReservation(onSuccess: (() -> Unit)? = null) {
     val current = _uiState.value
     val siteId = current.selectedSiteId ?: return setActionMessage("请先选择场地")
-    val purposeType = current.purposeType ?: return setActionMessage("请选择活动类型")
-    val joinerNum = current.joinerNum.toIntOrNull()
     _uiState.value = current.copy(hasTriedSubmitReservation = true, actionMessage = null)
     if (current.selections.isEmpty()) return setActionMessage("请至少选择一个时段")
-    if (joinerNum == null || joinerNum <= 0) return setActionMessage("参与人数必须大于 0")
     if (current.phone.isBlank()) return setActionMessage("请填写联系电话")
-    if (current.theme.isBlank()) return setActionMessage("请填写活动主题")
-    if (current.activityContent.isBlank()) return setActionMessage("请填写活动内容")
-    if (current.joiners.isBlank()) return setActionMessage("请填写参与人说明")
+
+    // 运动场订场：无需活动主题/内容/参与人数等审批字段
+    val purposeType = current.purposeType
+    if (!isSportVenue) {
+      if (purposeType == null) return setActionMessage("请选择活动类型")
+      val joinerNum = current.joinerNum.toIntOrNull()
+      if (joinerNum == null || joinerNum <= 0) return setActionMessage("参与人数必须大于 0")
+      if (current.theme.isBlank()) return setActionMessage("请填写活动主题")
+      if (current.activityContent.isBlank()) return setActionMessage("请填写活动内容")
+      if (current.joiners.isBlank()) return setActionMessage("请填写参与人说明")
+    }
 
     viewModelScope.launch {
       _uiState.value =
@@ -306,8 +312,8 @@ class CgyyViewModel(
                   selections = current.selections,
                   phone = current.phone,
                   theme = current.theme,
-                  purposeType = purposeType,
-                  joinerNum = joinerNum,
+                  purposeType = purposeType ?: 0,
+                  joinerNum = current.joinerNum.toIntOrNull() ?: 1,
                   activityContent = current.activityContent,
                   joiners = current.joiners,
                   isPhilosophySocialSciences = current.isPhilosophySocialSciences,

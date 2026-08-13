@@ -272,6 +272,8 @@ internal class LocalCgyyApiBackend(
     if (request.phone.isBlank()) {
       throw LocalCgyyApiException("请填写联系电话", "invalid_request", HttpStatusCode.BadRequest)
     }
+    // 运动场订场无需活动主题/内容/参与人数等审批字段
+    if (sportVenue) return
     if (request.theme.isBlank()) {
       throw LocalCgyyApiException("请填写活动主题", "invalid_request", HttpStatusCode.BadRequest)
     }
