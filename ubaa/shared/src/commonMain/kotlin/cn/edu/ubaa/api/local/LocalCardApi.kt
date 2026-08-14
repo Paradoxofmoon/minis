@@ -61,17 +61,22 @@ internal class LocalCardApiBackend : CardApiBackend {
     val studentId = requireStudentId() ?: return Result.failure(localUnauthenticatedApiException())
     return try {
       ensureCcpaySession()
+      // 优先实时拉取 /api/pay_ways，过滤掉电脑网站( *_web )方式，只留移动端直接支付
+      var ways = emptyList<CardPayWay>()
       val itemId = fetchRechargeItemId()
-      if (itemId.isBlank()) {
-        return Result.failure(ApiCallException("未找到校园卡充值缴费项", HttpStatusCode.BadGateway, "card_error"))
+      if (itemId.isNotBlank()) {
+        ways = fetchPayWays(itemId).filter { it.channel != "web" }
       }
-      val ways = fetchPayWays(itemId)
-      if (ways.isEmpty()) {
-        return Result.failure(ApiCallException("暂无可用的支付方式", HttpStatusCode.BadGateway, "card_error"))
+      // 兜底：若实时拉取为空（或全被过滤成电脑站方式），使用已实测可用的移动端支付方式
+      val result = if (ways.isNotEmpty()) ways else knownMobilePayWays()
+      if (result.isEmpty()) {
+        return Result.failure(ApiCallException("未找到可用的移动支付方式", HttpStatusCode.BadGateway, "card_error"))
       }
-      Result.success(ways)
+      Result.success(result)
     } catch (e: Exception) {
-      Result.failure(e.toUserFacingApiException("获取支付方式失败，请稍后重试"))
+      // 任何异常回退到已知移动端方式，保证充值可用
+      val fallback = knownMobilePayWays()
+      if (fallback.isNotEmpty()) Result.success(fallback) else Result.failure(e.toUserFacingApiException("获取支付方式失败，请稍后重试"))
     }
   }
 
@@ -182,7 +187,7 @@ internal class LocalCardApiBackend : CardApiBackend {
     return ""
   }
 
-  /** 从 /api/pay_ways 获取真实支付方式列表（只取 normal 里 isActive 的）。 */
+  /** 从 /api/pay_ways 获取支付方式列表（保留 web 与 mobile 区分，由调用方过滤）。 */
   private suspend fun fetchPayWays(goodsId: String): List<CardPayWay> {
     val response =
         LocalUpstreamClientProvider.shared().get(
@@ -210,10 +215,30 @@ internal class LocalCardApiBackend : CardApiBackend {
       val name = obj["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
       val text = obj["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
       if (id.isBlank()) continue
-      // channel 从 name 提取（wxpay/alipay/ylpay/ecpay/icbcpay），用于后续区分
-      result.add(CardPayWay(id = id, name = name, text = text.ifBlank { name }, channel = name))
+      // channel 区分：name 以 _web 结尾的是电脑网站支付（主扫二维码），非 _web 为移动/原生方式
+      val isWeb = name.endsWith("_web")
+      val channel = if (isWeb) "web" else name
+      result.add(CardPayWay(id = id, name = name, text = text.ifBlank { name }, channel = channel))
     }
     return result
+  }
+
+  /** 已实测/确认可用的移动端直接支付方式（App 拉起支付 App）。 */
+  private fun knownMobilePayWays(): List<CardPayWay> {
+    return listOf(
+        CardPayWay(
+            id = "5acada6148333c5f4695a68e",
+            name = "wxpay",
+            text = "微信支付",
+            channel = "wxpay",
+        ),
+        CardPayWay(
+            id = "5acada6048333cbc8195a68e",
+            name = "alipay",
+            text = "支付宝",
+            channel = "alipay",
+        ),
+    )
   }
 
   /** 获取校园卡充值所需的实名信息。 */
