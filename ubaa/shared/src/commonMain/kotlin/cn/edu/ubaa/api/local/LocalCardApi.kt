@@ -94,10 +94,10 @@ internal class LocalCardApiBackend : CardApiBackend {
       Result.success(payResult)
     } catch (e: ApiCallException) {
       platformLog("CR", "充值失败(ApiCall): ${e.message} :: ${e.status}")
-      Result.failure(e)
+      Result.failure(ApiCallException("充值失败: ${e.message}", e.status ?: HttpStatusCode.BadGateway, "card_error"))
     } catch (e: Exception) {
       platformLog("CR", "充值失败: ${e.message} :: ${e::class.simpleName}")
-      Result.failure(e.toUserFacingApiException("校园卡充值失败，请稍后重试"))
+      Result.failure(ApiCallException("充值失败: ${e.message ?: e::class.simpleName}", HttpStatusCode.BadGateway, "card_error"))
     }
   }
 
@@ -111,19 +111,25 @@ internal class LocalCardApiBackend : CardApiBackend {
   /** 通过 CAS SSO 跳转建立 pass.cc-pay.cn / mall.cc-pay.cn 会话。 */
   private suspend fun ensureCcpaySession() {
     val client = LocalUpstreamClientProvider.shared()
+    // pass 登录（建立 .cc-pay.cn 全局会话）
     val r1 = client.get(localUpstreamUrl("https://sso.buaa.edu.cn/login?service=https%3A%2F%2Fpass.cc-pay.cn%2Flogin")) {
       header(HttpHeaders.Accept, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
     }
     platformLog("CR", "CAS跳转 pass: status=${r1.status}")
-    // 触达 mall / cashier 子域，确保各域 cookie 就绪
-    val r2 = client.get(localUpstreamUrl("https://mall.cc-pay.cn/api/address")) {
+    // mall 登录（充值入口在 mall，需独立建立会话）
+    val r2 = client.get(localUpstreamUrl("https://sso.buaa.edu.cn/login?service=https%3A%2F%2Fmall.cc-pay.cn%2Flogin")) {
+      header(HttpHeaders.Accept, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+    }
+    platformLog("CR", "CAS跳转 mall: status=${r2.status} url=${r2.call.request.url}")
+    // 触达 mall / cashier
+    val r3 = client.get(localUpstreamUrl("https://mall.cc-pay.cn/api/address")) {
       header(HttpHeaders.Accept, "application/json")
     }
-    platformLog("CR", "mall触达: status=${r2.status} body=${r2.bodyAsText().take(100)}")
-    val r3 = client.get(localUpstreamUrl("https://cashier.cc-pay.cn/api/address")) {
+    platformLog("CR", "mall触达: status=${r3.status} body=${r3.bodyAsText().take(120)}")
+    val r4 = client.get(localUpstreamUrl("https://cashier.cc-pay.cn/api/address")) {
       header(HttpHeaders.Accept, "application/json")
     }
-    platformLog("CR", "cashier触达: status=${r3.status} body=${r3.bodyAsText().take(100)}")
+    platformLog("CR", "cashier触达: status=${r4.status} body=${r4.bodyAsText().take(120)}")
   }
 
   /** 获取校园卡充值所需的实名信息。 */
