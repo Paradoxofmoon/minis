@@ -1152,6 +1152,7 @@ fun MainAppScreen(
                     onAmountChange = viewModel::onAmountChange,
                     onBeginRecharge = viewModel::beginRecharge,
                     onOpenPay = { url -> if (!payOpener(url)) uriHandler.openUri(url) },
+                    onClearCashier = { viewModel.clearCashier() },
                     onClearPayUrl = { viewModel.clearPayUrl() },
                 )
               }

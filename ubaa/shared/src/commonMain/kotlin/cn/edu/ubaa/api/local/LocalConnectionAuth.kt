@@ -147,6 +147,30 @@ internal data class StoredCookieRecord(
     val createdAtEpochMillis: Long,
 )
 
+/**
+ * 供 composeApp 的收银台 WebView 使用：从当前登录会话的 cookie 持久层提取 cc-pay 域(含子域)
+ * 的 cookie，拼成可注入的 "name=value; name=value" 字符串。返回空串表示无可注入 cookie。
+ */
+fun buildCcpayCookieHeader(): String {
+  val mode = ConnectionRuntime.currentMode()?.takeIf { it != ConnectionMode.SERVER_RELAY } ?: ConnectionMode.DIRECT
+  val records = LocalCookieStore.load(mode)
+  val parts = mutableListOf<String>()
+  for (record in records) {
+    val cookie = record.cookie
+    val domain = (cookie.domain ?: "").lowercase()
+    // 覆盖 pass/mall/cashier.cc-pay.cn 三域（domain 形如 ".cc-pay.cn" 或 "xxx.cc-pay.cn"）
+    if (".cc-pay.cn" in domain || domain.endsWith(".cc-pay.cn") || domain == "cc-pay.cn") {
+      val name = cookie.name
+      val value = cookie.value
+      if (name.isNotBlank() && value.isNotBlank()) {
+        parts += "$name=$value"
+      }
+    }
+  }
+  return parts.distinct().joinToString("; ")
+}
+
+
 internal class PersistentLocalCookieStorage(private val mode: ConnectionMode) : CookiesStorage {
   private val mutex = Mutex()
 

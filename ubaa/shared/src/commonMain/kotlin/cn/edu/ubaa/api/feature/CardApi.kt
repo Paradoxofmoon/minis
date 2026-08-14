@@ -18,6 +18,7 @@ data class CardRechargeResult(
     val payUrl: String? = null,
     val payQrCode: String? = null,
     val payWebForm: String? = null,
+    val cashierUrl: String? = null,
 )
 
 /** 校园一卡通（校园卡）API 服务。 提供校园卡余额查询、充值等功能。 */

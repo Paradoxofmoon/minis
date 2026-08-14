@@ -22,6 +22,7 @@ data class CardUiState(
     val isLoadingPayWays: Boolean = false,
     val isRecharging: Boolean = false,
     val payUrl: String? = null,
+    val cashierUrl: String? = null,
 )
 
 /** 校园卡余额查询 + 充值 ViewModel。 */
@@ -123,11 +124,16 @@ class CardViewModel(
       cardApi
           .beginRecharge(amount, payWayId)
           .onSuccess { result ->
+            val cashier = result.cashierUrl?.takeIf { it.isNotBlank() }
+            val directPay = resolvePayTarget(result)
             _state.value =
                 _state.value.copy(
                     isRecharging = false,
-                    payUrl = resolvePayTarget(result),
-                    error = if (resolvePayTarget(result).isNullOrBlank()) "未获取到支付地址" else null,
+                    // 方案A：优先加载收银台网页(WebView 内点微信支付唤起)；否则退回直接 scheme
+                    cashierUrl = cashier,
+                    payUrl = if (cashier != null) null else directPay,
+                    error =
+                        if (cashier == null && directPay.isNullOrBlank()) "未获取到支付地址" else null,
                 )
           }
           .onFailure { error ->
@@ -144,6 +150,11 @@ class CardViewModel(
   /** 支付地址已处理完成后清理。 */
   fun clearPayUrl() {
     _state.value = _state.value.copy(payUrl = null)
+  }
+
+  /** 关闭收银台网页覆盖层。 */
+  fun clearCashier() {
+    _state.value = _state.value.copy(cashierUrl = null)
   }
 
   /** 清空错误提示。 */

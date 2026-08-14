@@ -2,11 +2,13 @@ package cn.edu.ubaa.ui.screens.card
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AddCard
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
@@ -20,7 +22,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.background
 import cn.edu.ubaa.api.feature.CardPayWay
+import cn.edu.ubaa.api.local.buildCcpayCookieHeader
+import cn.edu.ubaa.ui.component.InAppWebView
 
 @OptIn(ExperimentalMaterialApi::class)
 @Composable
@@ -33,6 +40,7 @@ fun CardScreen(
     onBeginRecharge: (String) -> Unit,
     onOpenPay: (String) -> Unit,
     onClearPayUrl: () -> Unit,
+    onClearCashier: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   val pullRefreshState = rememberPullRefreshState(refreshing = uiState.isRefreshing, onRefresh = onRefresh)
@@ -119,6 +127,28 @@ fun CardScreen(
         },
         dismissButton = { TextButton(onClick = onClearPayUrl) { Text("取消") } },
     )
+  }
+
+  // 方案A：收银台网页覆盖层（在网页里点微信支付，由 WebView 浏览器环境唤起微信）
+  uiState.cashierUrl?.let { cashierUrl ->
+    Dialog(onDismissRequest = onClearCashier, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+      Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        InAppWebView(
+            url = cashierUrl,
+            modifier = Modifier.fillMaxSize(),
+            cookies = buildCcpayCookieHeader().split("; ").filter { it.trim().isNotEmpty() },
+        )
+        IconButton(
+            onClick = onClearCashier,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp)
+                .background(MaterialTheme.colorScheme.surface, CircleShape),
+        ) {
+          Icon(Icons.Default.Close, contentDescription = "关闭支付")
+        }
+      }
+    }
   }
 }
 

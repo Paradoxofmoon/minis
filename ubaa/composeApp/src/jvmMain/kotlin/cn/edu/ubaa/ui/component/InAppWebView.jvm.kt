@@ -14,6 +14,7 @@ actual fun InAppWebView(
     modifier: Modifier,
     injectJsOnLoad: String?,
     cookies: List<String>,
+    onSchemeUrl: ((String) -> Boolean)?,
 ) {
     val uriHandler = LocalUriHandler.current
     Column(

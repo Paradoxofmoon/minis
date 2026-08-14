@@ -108,12 +108,14 @@ internal class LocalCardApiBackend : CardApiBackend {
       if (stuNo.isBlank() || realName.isBlank()) {
         throw ApiCallException("获取校园卡实名信息失败", HttpStatusCode.BadGateway, "card_error")
       }
-      // 3. 创建交易订单，拿到收银台交易号（cashierUrl 内 id=）
-      val transactionId = createTransaction(amount, itemId, stuNo, realName)
-      platformLog("CR", "交易创建完成: $transactionId")
+      // 3. 创建交易订单，拿到收银台交易号 + 收银台地址
+      val (transactionId, cashierUrl) = createTransaction(amount, itemId, stuNo, realName)
+      platformLog("CR", "交易创建完成: $transactionId  cashierUrl=$cashierUrl")
       // 4. 发起支付，拿到支付跳转地址
-      val payResult = initiatePay(transactionId, payWayId)
-      platformLog("CR", "发起支付完成: payUrl=${payResult.payUrl} qrcode=${payResult.payQrCode}")
+      var payResult = initiatePay(transactionId, payWayId)
+      // 把收银台地址一并返回（方案A：WebView 加载收银台网页，让网页微信支付)
+      payResult = payResult.copy(cashierUrl = cashierUrl.ifBlank { null })
+      platformLog("CR", "发起支付完成: payUrl=${payResult.payUrl} qrcode=${payResult.payQrCode} cashier=${payResult.cashierUrl}")
       Result.success(payResult)
     } catch (e: ApiCallException) {
       platformLog("CR", "充值失败(ApiCall): ${e.message} :: ${e.status}")
@@ -273,7 +275,7 @@ internal class LocalCardApiBackend : CardApiBackend {
       itemId: String,
       stuNo: String,
       realName: String,
-  ): String {
+  ): Pair<String, String> {
     val feeInfoJson = json.encodeToString(
         buildJsonObject {
           put("stuNo", JsonPrimitive(stuNo))
@@ -326,7 +328,7 @@ internal class LocalCardApiBackend : CardApiBackend {
     if (transactionId.isBlank()) {
       throw ApiCallException("创建充值订单失败：未返回收银台地址", HttpStatusCode.BadGateway, "card_error")
     }
-    return transactionId
+    return transactionId to cashierUrl
   }
 
   /** 从 cashierUrl（https://cashier.cc-pay.cn/cashier?id=xxx）解析交易号。 */
