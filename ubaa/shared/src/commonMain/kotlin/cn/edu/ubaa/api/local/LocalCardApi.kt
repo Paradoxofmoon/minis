@@ -23,6 +23,7 @@ import io.ktor.http.contentType
 import io.ktor.http.encodeURLParameter
 import kotlin.time.Clock
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -32,7 +33,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 // 校园卡充值账单项（BUAA_CAMPUS_CARD_RECHARGE）
-private const val RECHARGE_ITEM_ID = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+// itemId 不是硬编码，而是运行时从 /api/payment_items 按 code 匹配得到。
+private const val CAMPUS_CARD_RECHARGE_CODE = "BUAA_CAMPUS_CARD_RECHARGE"
 private const val CAMPUS_CARD_FEE = "campus_card_fee"
 
 internal class LocalCardApiBackend : CardApiBackend {
@@ -59,15 +61,15 @@ internal class LocalCardApiBackend : CardApiBackend {
     val studentId = requireStudentId() ?: return Result.failure(localUnauthenticatedApiException())
     return try {
       ensureCcpaySession()
-      // 需要先创建一笔交易才能拿到 goodsId 查支付方式；这里返回兜底常用方式，
-      // 实际可用性在 beginRecharge 发起支付时校验。
-      Result.success(
-          listOf(
-              CardPayWay(id = "wxpay", name = "wxpay", text = "微信支付", channel = "wxpay"),
-              CardPayWay(id = "alipay", name = "alipay", text = "支付宝", channel = "alipay"),
-              CardPayWay(id = "ylpay", name = "ylpay", text = "银联", channel = "ylpay"),
-          )
-      )
+      val itemId = fetchRechargeItemId()
+      if (itemId.isBlank()) {
+        return Result.failure(ApiCallException("未找到校园卡充值缴费项", HttpStatusCode.BadGateway, "card_error"))
+      }
+      val ways = fetchPayWays(itemId)
+      if (ways.isEmpty()) {
+        return Result.failure(ApiCallException("暂无可用的支付方式", HttpStatusCode.BadGateway, "card_error"))
+      }
+      Result.success(ways)
     } catch (e: Exception) {
       Result.failure(e.toUserFacingApiException("获取支付方式失败，请稍后重试"))
     }
@@ -82,15 +84,22 @@ internal class LocalCardApiBackend : CardApiBackend {
       ensureCcpaySession()
       platformLog("CR", "会话建立完成")
 
-      // 1. 获取实名信息（学号 + 姓名）
+      // 1. 获取校园卡充值账单项的真实 itemId（按 code 匹配，不硬编码）
+      val itemId = fetchRechargeItemId()
+      platformLog("CR", "账单项 itemId: $itemId")
+      if (itemId.isBlank()) {
+        throw ApiCallException("未找到校园卡充值缴费项", HttpStatusCode.BadGateway, "card_error")
+      }
+      // 2. 获取实名信息（学号 + 姓名）
       val (stuNo, realName) = fetchFeeInfo()
       platformLog("CR", "实名信息: $stuNo/$realName")
       if (stuNo.isBlank() || realName.isBlank()) {
         throw ApiCallException("获取校园卡实名信息失败", HttpStatusCode.BadGateway, "card_error")
       }
-      // 2. 创建交易订单
-      val transactionId = createTransaction(amount, stuNo, realName)
-      platformLog("CR", "交易创建完成: $transactionId")      // 3. 发起支付，拿到支付跳转地址
+      // 3. 创建交易订单，拿到收银台交易号（cashierUrl 内 id=）
+      val transactionId = createTransaction(amount, itemId, stuNo, realName)
+      platformLog("CR", "交易创建完成: $transactionId")
+      // 4. 发起支付，拿到支付跳转地址
       val payResult = initiatePay(transactionId, payWayId)
       platformLog("CR", "发起支付完成: payUrl=${payResult.payUrl} qrcode=${payResult.payQrCode}")
       Result.success(payResult)
@@ -134,6 +143,79 @@ internal class LocalCardApiBackend : CardApiBackend {
     platformLog("CR", "cashier触达: status=${r4.status} body=${r4.bodyAsText().take(120)}")
   }
 
+  /** 从缴费项列表按 code 匹配校园卡充值项，返回真实 itemId。 */
+  private suspend fun fetchRechargeItemId(): String {
+    val response =
+        LocalUpstreamClientProvider.shared().get(
+            localUpstreamUrl("https://mall.cc-pay.cn/api/payment_items")
+        ) {
+          parameter("t", Clock.System.now().toEpochMilliseconds())
+          parameter("pageSize", "-1")
+          header(HttpHeaders.Accept, "application/json")
+        }
+    val body = response.bodyAsText()
+    platformLog("CR", "fetchRechargeItemId: status=${response.status} body=${body.take(300)}")
+    checkCcpaySession(response, body)
+    val root = json.parseToJsonElement(body).jsonObject
+    // data 可能是 { data: [ ... ] } 或直接是数组
+    val dataNode = root["data"]
+    val items =
+        when {
+          dataNode is JsonObject && dataNode["data"] != null -> dataNode["data"]
+          else -> dataNode
+        }
+    if (items !is JsonArray) {
+      platformLog("CR", "payment_items 结构异常: ${body.take(120)}")
+      return ""
+    }
+    for (item in items) {
+      val obj = item as? JsonObject ?: continue
+      val code = obj["code"]?.jsonPrimitive?.contentOrNull
+      val isActive = obj["isActive"]
+      val isDeleted = obj["isDeleted"]
+      if (code == CAMPUS_CARD_RECHARGE_CODE) {
+        val id = obj["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        platformLog("CR", "命中充值项 id=$id active=$isActive deleted=$isDeleted")
+        return id
+      }
+    }
+    return ""
+  }
+
+  /** 从 /api/pay_ways 获取真实支付方式列表（只取 normal 里 isActive 的）。 */
+  private suspend fun fetchPayWays(goodsId: String): List<CardPayWay> {
+    val response =
+        LocalUpstreamClientProvider.shared().get(
+            localUpstreamUrl("https://cashier.cc-pay.cn/api/pay_ways")
+        ) {
+          parameter("_t", "=${Clock.System.now().toEpochMilliseconds()}")
+          parameter("payScene", "")
+          parameter("goodsId", goodsId)
+          header("version", "v2")
+          header(HttpHeaders.Accept, "application/json, text/plain, */*")
+          header(HttpHeaders.Referrer, "https://cashier.cc-pay.cn/cashier?id=")
+        }
+    val body = response.bodyAsText()
+    platformLog("CR", "fetchPayWays: status=${response.status} body=${body.take(500)}")
+    checkCcpaySession(response, body)
+    val root = json.parseToJsonElement(body).jsonObject
+    val data = root["data"].safeObject() ?: return emptyList()
+    val normal = data["normal"] as? JsonArray ?: return emptyList()
+    val result = mutableListOf<CardPayWay>()
+    for (item in normal) {
+      val obj = item as? JsonObject ?: continue
+      val isActive = obj["isActive"]?.jsonPrimitive?.contentOrNull ?: "true"
+      if (isActive == "false") continue
+      val id = obj["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+      val name = obj["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+      val text = obj["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+      if (id.isBlank()) continue
+      // channel 从 name 提取（wxpay/alipay/ylpay/ecpay/icbcpay），用于后续区分
+      result.add(CardPayWay(id = id, name = name, text = text.ifBlank { name }, channel = name))
+    }
+    return result
+  }
+
   /** 获取校园卡充值所需的实名信息。 */
   private suspend fun fetchFeeInfo(): Pair<String, String> {
     val response =
@@ -153,9 +235,10 @@ internal class LocalCardApiBackend : CardApiBackend {
     return stuNo to realName
   }
 
-  /** 创建支付交易，返回 transactionId。 */
+  /** 创建支付交易，返回收银台交易号（从 cashierUrl 的 id= 参数解析）。 */
   private suspend fun createTransaction(
       amount: String,
+      itemId: String,
       stuNo: String,
       realName: String,
   ): String {
@@ -170,7 +253,7 @@ internal class LocalCardApiBackend : CardApiBackend {
           put("targetId", JsonPrimitive("mall_id"))
           put("targetType", JsonPrimitive("mall"))
           put("money", JsonPrimitive(amount))
-          put("itemId", JsonPrimitive(RECHARGE_ITEM_ID))
+          put("itemId", JsonPrimitive(itemId))
           put("feeInfo", JsonPrimitive(feeInfoJson))
           put("fromType", JsonPrimitive(CAMPUS_CARD_FEE))
           put("choice", JsonPrimitive(""))
@@ -187,26 +270,44 @@ internal class LocalCardApiBackend : CardApiBackend {
           // Referer 需带 name/cardNo/school/money 参数，服务器据此校验
           header(
               HttpHeaders.Referrer,
-              "https://mall.cc-pay.cn/entry/card/$RECHARGE_ITEM_ID?name=${realName.encodeURLParameter()}&cardNo=$stuNo&school=buaa&money=$amount"
+              "https://mall.cc-pay.cn/entry/card/$itemId?name=${realName.encodeURLParameter()}&cardNo=$stuNo&school=buaa&money=$amount"
           )
         }
     val body = response.bodyAsText()
-    platformLog("CR", "createTransaction: status=${response.status} body=${body.take(400)}")
+    platformLog("CR", "createTransaction: status=${response.status} body=${body.take(600)}")
     checkCcpaySession(response, body)
     val jsonBody = json.parseToJsonElement(body).jsonObject
-    val data = jsonBody["data"].safeObject() ?: jsonBody
-    // 若返回业务错误，提取 message
     val msg = jsonBody["message"]?.jsonPrimitive?.contentOrNull
-    // transactionId 优先取 data.id / transactionId
-    val id = (data["id"] ?: data["transactionId"] ?: data["transaction_id"])?.jsonPrimitive?.contentOrNull.orEmpty()
-    if (id.isBlank()) {
+    val data = jsonBody["data"].safeObject()
+    val successStr = jsonBody["success"]?.jsonPrimitive?.contentOrNull
+    if (data == null || successStr == "false") {
       throw ApiCallException(
           "创建充值订单失败${msg?.let { ": $it" } ?: ""}",
           HttpStatusCode.BadGateway,
           "card_error",
       )
     }
-    return id
+    // 交易号在 data.cashierUrl 的 ?id= 里（与 data.id 账单ID 不同）
+    val cashierUrl = data["cashierUrl"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    val transactionId = extractCashierTransactionId(cashierUrl)
+    platformLog("CR", "cashierUrl=$cashierUrl -> transactionId=$transactionId")
+    if (transactionId.isBlank()) {
+      throw ApiCallException("创建充值订单失败：未返回收银台地址", HttpStatusCode.BadGateway, "card_error")
+    }
+    return transactionId
+  }
+
+  /** 从 cashierUrl（https://cashier.cc-pay.cn/cashier?id=xxx）解析交易号。 */
+  private fun extractCashierTransactionId(cashierUrl: String): String {
+    if (cashierUrl.isBlank()) return ""
+    val marker = "id="
+    val idx = cashierUrl.indexOf(marker)
+    if (idx < 0) return ""
+    var end = idx + marker.length
+    while (end < cashierUrl.length && cashierUrl[end] != '&' && cashierUrl[end] != '#') {
+      end++
+    }
+    return cashierUrl.substring(idx + marker.length, end)
   }
 
   /** 发起支付，返回支付跳转地址。 */
