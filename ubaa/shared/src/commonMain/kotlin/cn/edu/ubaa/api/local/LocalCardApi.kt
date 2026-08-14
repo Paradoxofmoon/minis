@@ -3,6 +3,7 @@ package cn.edu.ubaa.api.local
 import cn.edu.ubaa.api.auth.ApiCallException
 import cn.edu.ubaa.api.auth.toUserFacingApiException
 import cn.edu.ubaa.api.auth.userFacingMessageForCode
+import cn.edu.ubaa.api.network.platformLog
 import cn.edu.ubaa.api.feature.CardApiBackend
 import cn.edu.ubaa.api.feature.CardPayWay
 import cn.edu.ubaa.api.feature.CardRechargeResult
@@ -76,17 +77,26 @@ internal class LocalCardApiBackend : CardApiBackend {
     val studentId = requireStudentId() ?: return Result.failure(localUnauthenticatedApiException())
     return try {
       ensureCcpaySession()
+      platformLog("CR", "会话建立完成")
 
       // 1. 获取实名信息（学号 + 姓名）
       val (stuNo, realName) = fetchFeeInfo()
+      platformLog("CR", "实名信息: $stuNo/$realName")
+      if (stuNo.isBlank() || realName.isBlank()) {
+        throw ApiCallException("获取校园卡实名信息失败", HttpStatusCode.BadGateway, "card_error")
+      }
       // 2. 创建交易订单
       val transactionId = createTransaction(amount, stuNo, realName)
+      platformLog("CR", "交易创建完成: $transactionId")
       // 3. 发起支付，拿到支付跳转地址
       val payResult = initiatePay(transactionId, payWayId)
+      platformLog("CR", "发起支付完成: payUrl=${payResult.payUrl} qrcode=${payResult.payQrCode}")
       Result.success(payResult)
     } catch (e: ApiCallException) {
+      platformLog("CR", "充值失败(ApiCall): ${e.message} :: ${e.status}")
       Result.failure(e)
     } catch (e: Exception) {
+      platformLog("CR", "充值失败: ${e.message} :: ${e::class.simpleName}")
       Result.failure(e.toUserFacingApiException("校园卡充值失败，请稍后重试"))
     }
   }
