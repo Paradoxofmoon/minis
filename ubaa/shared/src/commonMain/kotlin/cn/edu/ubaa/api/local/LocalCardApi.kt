@@ -26,6 +26,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonObjectOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 // 校园卡充值账单项（BUAA_CAMPUS_CARD_RECHARGE）
@@ -145,7 +146,7 @@ internal class LocalCardApiBackend : CardApiBackend {
     val body = response.bodyAsText()
     platformLog("CR", "fetchFeeInfo: status=${response.status} body=${body.take(200)}")
     checkCcpaySession(response, body)
-    val data = json.parseToJsonElement(body).jsonObject["data"]?.jsonObject
+    val data = json.parseToJsonElement(body).jsonObject["data"]?.jsonObjectOrNull
     val stuNo = data?.get("stuNo")?.jsonPrimitive?.contentOrNull ?: ""
     val realName = data?.get("realName")?.jsonPrimitive?.contentOrNull ?: ""
     return stuNo to realName
@@ -188,11 +189,17 @@ internal class LocalCardApiBackend : CardApiBackend {
     platformLog("CR", "createTransaction: status=${response.status} body=${body.take(400)}")
     checkCcpaySession(response, body)
     val jsonBody = json.parseToJsonElement(body).jsonObject
-    val data = jsonBody["data"]?.jsonObject ?: jsonBody
+    val data = jsonBody["data"]?.jsonObjectOrNull ?: jsonBody
+    // 若返回业务错误，提取 message
+    val msg = jsonBody["message"]?.jsonPrimitive?.contentOrNull
     // transactionId 优先取 data.id / transactionId
     val id = (data["id"] ?: data["transactionId"] ?: data["transaction_id"])?.jsonPrimitive?.contentOrNull.orEmpty()
     if (id.isBlank()) {
-      throw ApiCallException("创建充值订单失败，请稍后重试", HttpStatusCode.BadGateway, "card_error")
+      throw ApiCallException(
+          "创建充值订单失败${msg?.let { ": $it" } ?: ""}",
+          HttpStatusCode.BadGateway,
+          "card_error",
+      )
     }
     return id
   }
@@ -214,7 +221,7 @@ internal class LocalCardApiBackend : CardApiBackend {
     val body = response.bodyAsText()
     platformLog("CR", "initiatePay: status=${response.status} body=${body.take(400)}")
     checkCcpaySession(response, body)
-    val data = json.parseToJsonElement(body).jsonObject["data"]?.jsonObject ?: return CardRechargeResult()
+    val data = json.parseToJsonElement(body).jsonObject["data"]?.jsonObjectOrNull ?: return CardRechargeResult()
     return CardRechargeResult(
         payUrl = data["payUrl"]?.jsonPrimitive?.contentOrNull?.ifBlank { null },
         payQrCode = data["payQrCode"]?.jsonPrimitive?.contentOrNull?.ifBlank { null },
