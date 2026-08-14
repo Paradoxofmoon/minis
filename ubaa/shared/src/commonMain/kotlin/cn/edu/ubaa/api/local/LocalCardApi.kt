@@ -20,6 +20,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.http.encodeURLParameter
 import kotlin.time.Clock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -89,8 +90,7 @@ internal class LocalCardApiBackend : CardApiBackend {
       }
       // 2. 创建交易订单
       val transactionId = createTransaction(amount, stuNo, realName)
-      platformLog("CR", "交易创建完成: $transactionId")
-      // 3. 发起支付，拿到支付跳转地址
+      platformLog("CR", "交易创建完成: $transactionId")      // 3. 发起支付，拿到支付跳转地址
       val payResult = initiatePay(transactionId, payWayId)
       platformLog("CR", "发起支付完成: payUrl=${payResult.payUrl} qrcode=${payResult.payQrCode}")
       Result.success(payResult)
@@ -184,7 +184,11 @@ internal class LocalCardApiBackend : CardApiBackend {
           contentType(ContentType.Application.Json)
           setBody(payload)
           header(HttpHeaders.Accept, "application/json, application/json")
-          header(HttpHeaders.Referrer, "https://mall.cc-pay.cn/entry/card/$RECHARGE_ITEM_ID")
+          // Referer 需带 name/cardNo/school/money 参数，服务器据此校验
+          header(
+              HttpHeaders.Referrer,
+              "https://mall.cc-pay.cn/entry/card/$RECHARGE_ITEM_ID?name=${realName.encodeURLParameter()}&cardNo=$stuNo&school=buaa&money=$amount"
+          )
         }
     val body = response.bodyAsText()
     platformLog("CR", "createTransaction: status=${response.status} body=${body.take(400)}")
