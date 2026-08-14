@@ -22,11 +22,12 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import kotlin.time.Clock
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonObjectOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 // 校园卡充值账单项（BUAA_CAMPUS_CARD_RECHARGE）
@@ -146,7 +147,7 @@ internal class LocalCardApiBackend : CardApiBackend {
     val body = response.bodyAsText()
     platformLog("CR", "fetchFeeInfo: status=${response.status} body=${body.take(200)}")
     checkCcpaySession(response, body)
-    val data = json.parseToJsonElement(body).jsonObject["data"]?.jsonObjectOrNull
+    val data = json.parseToJsonElement(body).jsonObject["data"].safeObject()
     val stuNo = data?.get("stuNo")?.jsonPrimitive?.contentOrNull ?: ""
     val realName = data?.get("realName")?.jsonPrimitive?.contentOrNull ?: ""
     return stuNo to realName
@@ -189,7 +190,7 @@ internal class LocalCardApiBackend : CardApiBackend {
     platformLog("CR", "createTransaction: status=${response.status} body=${body.take(400)}")
     checkCcpaySession(response, body)
     val jsonBody = json.parseToJsonElement(body).jsonObject
-    val data = jsonBody["data"]?.jsonObjectOrNull ?: jsonBody
+    val data = jsonBody["data"].safeObject() ?: jsonBody
     // 若返回业务错误，提取 message
     val msg = jsonBody["message"]?.jsonPrimitive?.contentOrNull
     // transactionId 优先取 data.id / transactionId
@@ -221,7 +222,7 @@ internal class LocalCardApiBackend : CardApiBackend {
     val body = response.bodyAsText()
     platformLog("CR", "initiatePay: status=${response.status} body=${body.take(400)}")
     checkCcpaySession(response, body)
-    val data = json.parseToJsonElement(body).jsonObject["data"]?.jsonObjectOrNull ?: return CardRechargeResult()
+    val data = json.parseToJsonElement(body).jsonObject["data"].safeObject() ?: return CardRechargeResult()
     return CardRechargeResult(
         payUrl = data["payUrl"]?.jsonPrimitive?.contentOrNull?.ifBlank { null },
         payQrCode = data["payQrCode"]?.jsonPrimitive?.contentOrNull?.ifBlank { null },
@@ -244,8 +245,7 @@ internal class LocalCardApiBackend : CardApiBackend {
     }
   }
 
-  private suspend fun parseBalanceResponse(response: HttpResponse): Result<CardBalanceData> {
-    val body = response.bodyAsText()
+  private suspend fun parseBalanceResponse(response: HttpResponse): Result<CardBalanceData> {    val body = response.bodyAsText()
     if (isCardSessionExpired(response, body)) {
       return Result.failure(resolveLocalBusinessAuthenticationFailure("card_error"))
     }
@@ -296,3 +296,6 @@ internal class LocalCardApiBackend : CardApiBackend {
         body.contains("统一身份认证", ignoreCase = true)
   }
 }
+
+/** JsonElement 安全转为 JsonObject，非对象（含 null）返回 null。 */
+private fun JsonElement?.safeObject(): JsonObject? = this as? JsonObject
