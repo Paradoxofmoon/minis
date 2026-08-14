@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
+import cn.edu.ubaa.ui.common.util.rememberPayOpener
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cn.edu.ubaa.api.ConnectionMode
@@ -153,6 +154,7 @@ fun MainAppScreen(
 ) {
   val scope = rememberCoroutineScope()
   val uriHandler = LocalUriHandler.current
+  val payOpener = rememberPayOpener()
   val navController = rememberNavigationController()
   val currentScreen = navController.currentScreen
 
@@ -1149,7 +1151,7 @@ fun MainAppScreen(
                     onLoadPayWays = { viewModel.loadPayWays() },
                     onAmountChange = viewModel::onAmountChange,
                     onBeginRecharge = viewModel::beginRecharge,
-                    onOpenPay = { url -> uriHandler.openUri(url) },
+                    onOpenPay = { url -> if (!payOpener(url)) uriHandler.openUri(url) },
                     onClearPayUrl = { viewModel.clearPayUrl() },
                 )
               }
@@ -1199,7 +1201,7 @@ fun MainAppScreen(
                     onContinuePendingPay = viewModel::continuePendingPay,
                     onCancelPendingPay = viewModel::cancelPendingPay,
                     onDismissPayUrl = viewModel::dismissPayUrl,
-                    onOpenPayUrl = { url -> uriHandler.openUri(url) },
+                    onOpenPayUrl = { url -> if (!payOpener(url)) uriHandler.openUri(url) },
                     onRetryTree = viewModel::loadMeterTree,
                 )
               }
