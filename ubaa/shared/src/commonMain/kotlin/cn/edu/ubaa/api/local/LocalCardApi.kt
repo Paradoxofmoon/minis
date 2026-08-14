@@ -111,16 +111,19 @@ internal class LocalCardApiBackend : CardApiBackend {
   /** 通过 CAS SSO 跳转建立 pass.cc-pay.cn / mall.cc-pay.cn 会话。 */
   private suspend fun ensureCcpaySession() {
     val client = LocalUpstreamClientProvider.shared()
-    client.get(localUpstreamUrl("https://sso.buaa.edu.cn/login?service=https%3A%2F%2Fpass.cc-pay.cn%2Flogin")) {
+    val r1 = client.get(localUpstreamUrl("https://sso.buaa.edu.cn/login?service=https%3A%2F%2Fpass.cc-pay.cn%2Flogin")) {
       header(HttpHeaders.Accept, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
     }
+    platformLog("CR", "CAS跳转 pass: status=${r1.status}")
     // 触达 mall / cashier 子域，确保各域 cookie 就绪
-    client.get(localUpstreamUrl("https://mall.cc-pay.cn/api/address")) {
+    val r2 = client.get(localUpstreamUrl("https://mall.cc-pay.cn/api/address")) {
       header(HttpHeaders.Accept, "application/json")
     }
-    client.get(localUpstreamUrl("https://cashier.cc-pay.cn/api/address")) {
+    platformLog("CR", "mall触达: status=${r2.status} body=${r2.bodyAsText().take(100)}")
+    val r3 = client.get(localUpstreamUrl("https://cashier.cc-pay.cn/api/address")) {
       header(HttpHeaders.Accept, "application/json")
     }
+    platformLog("CR", "cashier触达: status=${r3.status} body=${r3.bodyAsText().take(100)}")
   }
 
   /** 获取校园卡充值所需的实名信息。 */
@@ -134,6 +137,7 @@ internal class LocalCardApiBackend : CardApiBackend {
           header(HttpHeaders.Accept, "application/json")
         }
     val body = response.bodyAsText()
+    platformLog("CR", "fetchFeeInfo: status=${response.status} body=${body.take(200)}")
     checkCcpaySession(response, body)
     val data = json.parseToJsonElement(body).jsonObject["data"]?.jsonObject
     val stuNo = data?.get("stuNo")?.jsonPrimitive?.contentOrNull ?: ""
@@ -175,6 +179,7 @@ internal class LocalCardApiBackend : CardApiBackend {
           header(HttpHeaders.Referrer, "https://mall.cc-pay.cn/entry/card/$RECHARGE_ITEM_ID")
         }
     val body = response.bodyAsText()
+    platformLog("CR", "createTransaction: status=${response.status} body=${body.take(400)}")
     checkCcpaySession(response, body)
     val jsonBody = json.parseToJsonElement(body).jsonObject
     val data = jsonBody["data"]?.jsonObject ?: jsonBody
@@ -201,6 +206,7 @@ internal class LocalCardApiBackend : CardApiBackend {
           header(HttpHeaders.Referrer, "https://cashier.cc-pay.cn/cashier?id=$transactionId")
         }
     val body = response.bodyAsText()
+    platformLog("CR", "initiatePay: status=${response.status} body=${body.take(400)}")
     checkCcpaySession(response, body)
     val data = json.parseToJsonElement(body).jsonObject["data"]?.jsonObject ?: return CardRechargeResult()
     return CardRechargeResult(
