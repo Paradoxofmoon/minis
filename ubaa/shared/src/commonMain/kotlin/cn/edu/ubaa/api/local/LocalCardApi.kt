@@ -61,20 +61,27 @@ internal class LocalCardApiBackend : CardApiBackend {
     val studentId = requireStudentId() ?: return Result.failure(localUnauthenticatedApiException())
     return try {
       ensureCcpaySession()
-      // 优先实时拉取 /api/pay_ways，过滤掉电脑网站( *_web )方式，只留移动端直接支付
-      var ways = emptyList<CardPayWay>()
+      // 手机端 App 直接支付使用已实测的移动端微信/支付宝方式。
+      // /api/pay_ways 实时接口在 App 场景可能只返回数字人民币等，不可靠，
+      // 仅当它明确返回微信/支付宝时才采用，否则一律用已知移动端方式。
+      var useRealTime = false
       val itemId = fetchRechargeItemId()
       if (itemId.isNotBlank()) {
-        ways = fetchPayWays(itemId).filter { it.channel != "web" }
+        val ways = fetchPayWays(itemId)
+        val hasWxOrAli = ways.any { it.channel.contains("wx") || it.channel.contains("weixin") || it.channel.contains("alipay") }
+        if (hasWxOrAli) {
+          useRealTime = true
+          return Result.success(ways)
+        }
+        platformLog("CR", "实时 pay_ways 无微信/支付宝，改用已知移动端方式")
       }
-      // 兜底：若实时拉取为空（或全被过滤成电脑站方式），使用已实测可用的移动端支付方式
-      val result = if (ways.isNotEmpty()) ways else knownMobilePayWays()
-      if (result.isEmpty()) {
-        return Result.failure(ApiCallException("未找到可用的移动支付方式", HttpStatusCode.BadGateway, "card_error"))
+      if (!useRealTime) {
+        val known = knownMobilePayWays()
+        if (known.isNotEmpty()) return Result.success(known)
       }
-      Result.success(result)
+      Result.failure(ApiCallException("未找到可用的移动支付方式", HttpStatusCode.BadGateway, "card_error"))
     } catch (e: Exception) {
-      // 任何异常回退到已知移动端方式，保证充值可用
+      // 任何异常回退到已实测的移动端支付方式，保证充值可用
       val fallback = knownMobilePayWays()
       if (fallback.isNotEmpty()) Result.success(fallback) else Result.failure(e.toUserFacingApiException("获取支付方式失败，请稍后重试"))
     }
