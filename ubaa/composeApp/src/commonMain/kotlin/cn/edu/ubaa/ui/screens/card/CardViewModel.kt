@@ -3,6 +3,8 @@ package cn.edu.ubaa.ui.screens.card
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.ubaa.api.feature.CardApi
+import cn.edu.ubaa.api.feature.CardPayWay
+import cn.edu.ubaa.api.feature.CardRechargeResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,9 +16,15 @@ data class CardUiState(
     val isRefreshing: Boolean = false,
     val balance: String = "",
     val error: String? = null,
+    // ---- 充值状态 ----
+    val amount: String = "",
+    val payWays: List<CardPayWay> = emptyList(),
+    val isLoadingPayWays: Boolean = false,
+    val isRecharging: Boolean = false,
+    val payUrl: String? = null,
 )
 
-/** 校园卡余额查询的 ViewModel。 */
+/** 校园卡余额查询 + 充值 ViewModel。 */
 class CardViewModel(
     private val cardApi: CardApi = CardApi(),
 ) : ViewModel() {
@@ -73,6 +81,69 @@ class CardViewModel(
                 )
           }
     }
+  }
+
+  // ===== 充值 =====
+
+  /** 加载充值可用的支付方式。 */
+  fun loadPayWays() {
+    if (_state.value.isLoadingPayWays) return
+    _state.value = _state.value.copy(isLoadingPayWays = true, error = null)
+    viewModelScope.launch {
+      cardApi
+          .getRechargePayWays()
+          .onSuccess { ways ->
+            _state.value = _state.value.copy(isLoadingPayWays = false, payWays = ways)
+          }
+          .onFailure { error ->
+            _state.value =
+                _state.value.copy(isLoadingPayWays = false, error = error.message ?: "加载支付方式失败")
+          }
+    }
+  }
+
+  fun onAmountChange(value: String) {
+    _state.value = _state.value.copy(amount = value)
+  }
+
+  /** 发起充值：创建订单并发起支付，返回支付跳转地址。 */
+  fun beginRecharge(payWayId: String) {
+    val amount = _state.value.amount
+    if (amount.isBlank()) {
+      _state.value = _state.value.copy(error = "请输入充值金额")
+      return
+    }
+    val amountValue = amount.toDoubleOrNull()
+    if (amountValue == null || amountValue < 1 || amountValue > 90000) {
+      _state.value = _state.value.copy(error = "充值金额需在 1~90000 元之间")
+      return
+    }
+    _state.value = _state.value.copy(isRecharging = true, error = null)
+    viewModelScope.launch {
+      cardApi
+          .beginRecharge(amount, payWayId)
+          .onSuccess { result ->
+            _state.value =
+                _state.value.copy(
+                    isRecharging = false,
+                    payUrl = resolvePayTarget(result),
+                    error = if (resolvePayTarget(result).isNullOrBlank()) "未获取到支付地址" else null,
+                )
+          }
+          .onFailure { error ->
+            _state.value =
+                _state.value.copy(isRecharging = false, error = error.message ?: "充值失败，请稍后重试")
+          }
+    }
+  }
+
+  private fun resolvePayTarget(result: CardRechargeResult): String? =
+      result.payUrl?.takeIf { it.isNotBlank() }
+          ?: result.payQrCode?.takeIf { it.isNotBlank() }
+
+  /** 支付地址已处理完成后清理。 */
+  fun clearPayUrl() {
+    _state.value = _state.value.copy(payUrl = null)
   }
 
   /** 清空错误提示。 */

@@ -1146,6 +1146,11 @@ fun MainAppScreen(
                     uiState = cardUiState,
                     onRefresh = { viewModel.refresh() },
                     onRetry = { viewModel.refresh() },
+                    onLoadPayWays = { viewModel.loadPayWays() },
+                    onAmountChange = viewModel::onAmountChange,
+                    onBeginRecharge = viewModel::beginRecharge,
+                    onOpenPay = { url -> uriHandler.openUri(url) },
+                    onClearPayUrl = { viewModel.clearPayUrl() },
                 )
               }
            AppScreen.NETWORK ->

@@ -1,36 +1,26 @@
 package cn.edu.ubaa.ui.screens.card
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.AddCard
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.edu.ubaa.api.feature.CardPayWay
 
 @OptIn(ExperimentalMaterialApi::class)
 @Composable
@@ -38,6 +28,11 @@ fun CardScreen(
     uiState: CardUiState,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
+    onLoadPayWays: () -> Unit,
+    onAmountChange: (String) -> Unit,
+    onBeginRecharge: (String) -> Unit,
+    onOpenPay: (String) -> Unit,
+    onClearPayUrl: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   val pullRefreshState = rememberPullRefreshState(refreshing = uiState.isRefreshing, onRefresh = onRefresh)
@@ -61,33 +56,6 @@ fun CardScreen(
             }
           }
         }
-        uiState.error != null -> {
-          item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-            ) {
-              Column(
-                  modifier = Modifier.fillMaxWidth().padding(24.dp),
-                  horizontalAlignment = Alignment.CenterHorizontally,
-                  verticalArrangement = Arrangement.spacedBy(12.dp),
-              ) {
-                Text(
-                    text = "余额加载失败",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = uiState.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                )
-                Button(onClick = onRetry) { Text("重试") }
-              }
-            }
-          }
-        }
         else -> {
           item {
             BalanceCard(
@@ -96,6 +64,30 @@ fun CardScreen(
                 icon = Icons.Default.AccountBalanceWallet,
             )
           }
+
+          if (uiState.error != null) {
+            item {
+              Card(
+                  modifier = Modifier.fillMaxWidth(),
+                  colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+              ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                  Text(uiState.error, color = MaterialTheme.colorScheme.onErrorContainer)
+                  if (uiState.balance.isBlank()) {
+                    Button(onClick = onRetry) { Text("重试") }
+                  }
+                }
+              }
+            }
+          }
+
+          item { Spacer(modifier = Modifier.height(8.dp)) }
+
+          item { RechargeSection(uiState, onLoadPayWays, onAmountChange, onBeginRecharge) }
         }
       }
 
@@ -108,6 +100,117 @@ fun CardScreen(
         modifier = Modifier.align(Alignment.TopCenter),
     )
   }
+
+  // 支付跳转确认对话框
+  uiState.payUrl?.let { url ->
+    AlertDialog(
+        onDismissRequest = onClearPayUrl,
+        title = { Text("去支付") },
+        text = { Text("将拉起支付应用完成付款。") },
+        confirmButton = {
+          TextButton(
+              onClick = {
+                onOpenPay(url)
+                onClearPayUrl()
+              }
+          ) {
+            Text("打开支付")
+          }
+        },
+        dismissButton = { TextButton(onClick = onClearPayUrl) { Text("取消") } },
+    )
+  }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RechargeSection(
+    uiState: CardUiState,
+    onLoadPayWays: () -> Unit,
+    onAmountChange: (String) -> Unit,
+    onBeginRecharge: (String) -> Unit,
+) {
+  var selectedPayWay by remember { mutableStateOf<String?>(null) }
+
+  Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Icon(Icons.Default.AddCard, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Text("校园卡充值", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+      }
+
+      OutlinedTextField(
+          value = uiState.amount,
+          onValueChange = onAmountChange,
+          label = { Text("充值金额（元）") },
+          singleLine = true,
+          keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+          modifier = Modifier.fillMaxWidth(),
+      )
+
+      Text("充值金额需在 1~90000 元之间（开放时段 04:00~23:00）",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+      // 支付方式
+      if (uiState.isLoadingPayWays) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+          Text("加载支付方式...", style = MaterialTheme.typography.bodySmall)
+        }
+      } else if (uiState.payWays.isEmpty()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          Text("选择支付方式", style = MaterialTheme.typography.bodySmall)
+          TextButton(onClick = onLoadPayWays) { Text("加载") }
+        }
+      } else {
+        Text("选择支付方式", style = MaterialTheme.typography.titleSmall)
+        FlowRowForPayWays(
+            payWays = uiState.payWays,
+            selectedPayWay = selectedPayWay,
+            onSelect = { selectedPayWay = it },
+        )
+      }
+
+      Button(
+          onClick = {
+            val way = selectedPayWay ?: return@Button
+            onBeginRecharge(way)
+          },
+          enabled = uiState.amount.isNotBlank() && selectedPayWay != null && !uiState.isRecharging,
+          modifier = Modifier.fillMaxWidth().height(48.dp),
+      ) {
+        if (uiState.isRecharging) {
+          CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        } else {
+          Text("确认充值")
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun FlowRowForPayWays(
+    payWays: List<CardPayWay>,
+    selectedPayWay: String?,
+    onSelect: (String) -> Unit,
+) {
+  Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
+    payWays.forEach { way ->
+      FilterChip(
+          selected = way.id == selectedPayWay,
+          onClick = { onSelect(way.id) },
+          label = { Text(way.text) },
+      )
+    }
+  }
 }
 
 @Composable
@@ -115,27 +218,12 @@ private fun BalanceCard(
     title: String,
     amount: String,
     icon: ImageVector,
-    isSecondary: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-  val amountTextSize = if (isSecondary) 24.sp else 32.sp
-  val containerColor =
-      if (isSecondary) {
-        MaterialTheme.colorScheme.surfaceVariant
-      } else {
-        MaterialTheme.colorScheme.surface
-      }
-  val contentColor =
-      if (isSecondary) {
-        MaterialTheme.colorScheme.onSurfaceVariant
-      } else {
-        MaterialTheme.colorScheme.onSurface
-      }
-
   Card(
       modifier = modifier.fillMaxWidth(),
-      colors = CardDefaults.cardColors(containerColor = containerColor, contentColor = contentColor),
-      elevation = CardDefaults.cardElevation(defaultElevation = if (isSecondary) 1.dp else 2.dp),
+      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
       shape = MaterialTheme.shapes.medium,
   ) {
     Column(
@@ -159,12 +247,11 @@ private fun BalanceCard(
             fontWeight = FontWeight.Medium,
         )
       }
-
       Text(
           text = amount,
-          style = MaterialTheme.typography.headlineLarge.copy(fontSize = amountTextSize),
+          style = MaterialTheme.typography.headlineLarge,
           fontWeight = FontWeight.Bold,
-          color = if (isSecondary) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+          color = MaterialTheme.colorScheme.onSurface,
       )
     }
   }

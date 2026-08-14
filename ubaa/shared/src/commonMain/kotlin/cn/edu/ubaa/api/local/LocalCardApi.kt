@@ -4,44 +4,40 @@ import cn.edu.ubaa.api.auth.ApiCallException
 import cn.edu.ubaa.api.auth.toUserFacingApiException
 import cn.edu.ubaa.api.auth.userFacingMessageForCode
 import cn.edu.ubaa.api.feature.CardApiBackend
+import cn.edu.ubaa.api.feature.CardPayWay
+import cn.edu.ubaa.api.feature.CardRechargeResult
 import cn.edu.ubaa.model.dto.CardBalanceData
 import cn.edu.ubaa.model.dto.CardBalanceResponse
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import kotlin.time.Clock
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+
+// 校园卡充值账单项（BUAA_CAMPUS_CARD_RECHARGE）
+private const val RECHARGE_ITEM_ID = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+private const val CAMPUS_CARD_FEE = "campus_card_fee"
 
 internal class LocalCardApiBackend : CardApiBackend {
   private val json = Json { ignoreUnknownKeys = true }
 
   override suspend fun getBalance(): Result<CardBalanceData> {
-    val session =
-        LocalAuthSessionStore.get() ?: return Result.failure(localUnauthenticatedApiException())
-    val studentId = session.user.schoolid.ifBlank { session.username }
-    if (studentId.isBlank()) {
-      return Result.failure(localUnauthenticatedApiException())
-    }
-
+    val studentId = requireStudentId() ?: return Result.failure(localUnauthenticatedApiException())
     return try {
-      // 第一步：通过 CAS SSO 跳转获取 pass.cc-pay.cn 会话 Cookie
-      LocalUpstreamClientProvider.shared()
-          .get(
-              localUpstreamUrl(
-                  "https://sso.buaa.edu.cn/login?service=https%3A%2F%2Fpass.cc-pay.cn%2Flogin"
-              )
-          ) {
-            header(
-                HttpHeaders.Accept,
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            )
-          }
-
-      // 第二步：调用一卡通余额查询接口
+      ensureCcpaySession()
       val response =
           LocalUpstreamClientProvider.shared()
               .get(localUpstreamUrl("https://pass.cc-pay.cn/api/campus_card/balance")) {
@@ -49,10 +45,173 @@ internal class LocalCardApiBackend : CardApiBackend {
                 parameter("stuNo", studentId)
                 header(HttpHeaders.Accept, "application/json, text/plain, */*")
               }
-
       parseBalanceResponse(response)
     } catch (e: Exception) {
       Result.failure(e.toUserFacingApiException("一卡通余额查询失败，请稍后重试"))
+    }
+  }
+
+  override suspend fun getRechargePayWays(): Result<List<CardPayWay>> {
+    val studentId = requireStudentId() ?: return Result.failure(localUnauthenticatedApiException())
+    return try {
+      ensureCcpaySession()
+      // 需要先创建一笔交易才能拿到 goodsId 查支付方式；这里返回兜底常用方式，
+      // 实际可用性在 beginRecharge 发起支付时校验。
+      Result.success(
+          listOf(
+              CardPayWay(id = "wxpay", name = "wxpay", text = "微信支付", channel = "wxpay"),
+              CardPayWay(id = "alipay", name = "alipay", text = "支付宝", channel = "alipay"),
+              CardPayWay(id = "ylpay", name = "ylpay", text = "银联", channel = "ylpay"),
+          )
+      )
+    } catch (e: Exception) {
+      Result.failure(e.toUserFacingApiException("获取支付方式失败，请稍后重试"))
+    }
+  }
+
+  override suspend fun beginRecharge(
+      amount: String,
+      payWayId: String,
+  ): Result<CardRechargeResult> {
+    val studentId = requireStudentId() ?: return Result.failure(localUnauthenticatedApiException())
+    return try {
+      ensureCcpaySession()
+
+      // 1. 获取实名信息（学号 + 姓名）
+      val (stuNo, realName) = fetchFeeInfo()
+      // 2. 创建交易订单
+      val transactionId = createTransaction(amount, stuNo, realName)
+      // 3. 发起支付，拿到支付跳转地址
+      val payResult = initiatePay(transactionId, payWayId)
+      Result.success(payResult)
+    } catch (e: ApiCallException) {
+      Result.failure(e)
+    } catch (e: Exception) {
+      Result.failure(e.toUserFacingApiException("校园卡充值失败，请稍后重试"))
+    }
+  }
+
+  // ===== 私有方法 =====
+
+  private suspend fun requireStudentId(): String? {
+    val session = LocalAuthSessionStore.get() ?: return null
+    return session.user.schoolid.ifBlank { session.username }.ifBlank { null }
+  }
+
+  /** 通过 CAS SSO 跳转建立 pass.cc-pay.cn / mall.cc-pay.cn 会话。 */
+  private suspend fun ensureCcpaySession() {
+    val client = LocalUpstreamClientProvider.shared()
+    client.get(localUpstreamUrl("https://sso.buaa.edu.cn/login?service=https%3A%2F%2Fpass.cc-pay.cn%2Flogin")) {
+      header(HttpHeaders.Accept, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+    }
+    // 触达 mall / cashier 子域，确保各域 cookie 就绪
+    client.get(localUpstreamUrl("https://mall.cc-pay.cn/api/address")) {
+      header(HttpHeaders.Accept, "application/json")
+    }
+    client.get(localUpstreamUrl("https://cashier.cc-pay.cn/api/address")) {
+      header(HttpHeaders.Accept, "application/json")
+    }
+  }
+
+  /** 获取校园卡充值所需的实名信息。 */
+  private suspend fun fetchFeeInfo(): Pair<String, String> {
+    val response =
+        LocalUpstreamClientProvider.shared().get(
+            localUpstreamUrl("https://mall.cc-pay.cn/api/bill/note/feeInfo")
+        ) {
+          parameter("t", Clock.System.now().toEpochMilliseconds())
+          parameter("fromType", CAMPUS_CARD_FEE)
+          header(HttpHeaders.Accept, "application/json")
+        }
+    val body = response.bodyAsText()
+    checkCcpaySession(response, body)
+    val data = json.parseToJsonElement(body).jsonObject["data"]?.jsonObject
+    val stuNo = data?.get("stuNo")?.jsonPrimitive?.contentOrNull ?: ""
+    val realName = data?.get("realName")?.jsonPrimitive?.contentOrNull ?: ""
+    return stuNo to realName
+  }
+
+  /** 创建支付交易，返回 transactionId。 */
+  private suspend fun createTransaction(
+      amount: String,
+      stuNo: String,
+      realName: String,
+  ): String {
+    val feeInfoJson = json.encodeToString(
+        buildJsonObject {
+          put("stuNo", JsonPrimitive(stuNo))
+          put("realName", JsonPrimitive(realName))
+        }
+    )
+    val payload = json.encodeToString(
+        buildJsonObject {
+          put("targetId", JsonPrimitive("mall_id"))
+          put("targetType", JsonPrimitive("mall"))
+          put("money", JsonPrimitive(amount))
+          put("itemId", JsonPrimitive(RECHARGE_ITEM_ID))
+          put("feeInfo", JsonPrimitive(feeInfoJson))
+          put("fromType", JsonPrimitive(CAMPUS_CARD_FEE))
+          put("choice", JsonPrimitive(""))
+        }
+    )
+    val response =
+        LocalUpstreamClientProvider.shared().post(
+            localUpstreamUrl("https://mall.cc-pay.cn/api/payment")
+        ) {
+          parameter("t", Clock.System.now().toEpochMilliseconds())
+          contentType(ContentType.Application.Json)
+          setBody(payload)
+          header(HttpHeaders.Accept, "application/json, application/json")
+          header(HttpHeaders.Referrer, "https://mall.cc-pay.cn/entry/card/$RECHARGE_ITEM_ID")
+        }
+    val body = response.bodyAsText()
+    checkCcpaySession(response, body)
+    val jsonBody = json.parseToJsonElement(body).jsonObject
+    val data = jsonBody["data"]?.jsonObject ?: jsonBody
+    // transactionId 优先取 data.id / transactionId
+    val id = (data["id"] ?: data["transactionId"] ?: data["transaction_id"])?.jsonPrimitive?.contentOrNull.orEmpty()
+    if (id.isBlank()) {
+      throw ApiCallException("创建充值订单失败，请稍后重试", HttpStatusCode.BadGateway, "card_error")
+    }
+    return id
+  }
+
+  /** 发起支付，返回支付跳转地址。 */
+  private suspend fun initiatePay(transactionId: String, payWayId: String): CardRechargeResult {
+    val response =
+        LocalUpstreamClientProvider.shared().get(
+            localUpstreamUrl("https://cashier.cc-pay.cn/transaction/pay")
+        ) {
+          parameter("id", transactionId)
+          parameter("payWayId", payWayId)
+          parameter("phoneNumber", "")
+          parameter("ecCode", "")
+          header("version", "v2")
+          header(HttpHeaders.Accept, "application/json, text/plain, */*")
+          header(HttpHeaders.Referrer, "https://cashier.cc-pay.cn/cashier?id=$transactionId")
+        }
+    val body = response.bodyAsText()
+    checkCcpaySession(response, body)
+    val data = json.parseToJsonElement(body).jsonObject["data"]?.jsonObject ?: return CardRechargeResult()
+    return CardRechargeResult(
+        payUrl = data["payUrl"]?.jsonPrimitive?.contentOrNull?.ifBlank { null },
+        payQrCode = data["payQrCode"]?.jsonPrimitive?.contentOrNull?.ifBlank { null },
+        payWebForm = data["payWebForm"]?.jsonPrimitive?.contentOrNull,
+    )
+  }
+
+  private suspend fun checkCcpaySession(response: HttpResponse, body: String) {
+    if (response.status == HttpStatusCode.Unauthorized) {
+      throw resolveLocalBusinessAuthenticationFailure("card_error")
+    }
+    if (localIsSsoUrl(response.call.request.url.toString())) {
+      throw resolveLocalBusinessAuthenticationFailure("card_error")
+    }
+    val trimmed = body.trimStart()
+    if (trimmed.startsWith("<!DOCTYPE html", ignoreCase = true) ||
+        trimmed.startsWith("<html", ignoreCase = true) ||
+        body.contains("统一身份认证", ignoreCase = true)) {
+      throw resolveLocalBusinessAuthenticationFailure("card_error")
     }
   }
 
