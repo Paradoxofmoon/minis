@@ -13,6 +13,7 @@ actual fun InAppWebView(
     injectJsOnLoad: String?,
     cookies: List<String>,
     onSchemeUrl: ((String) -> Boolean)?,
+    onPageError: ((String) -> Unit)?,
 ) {
     LaunchedEffect(url) {
         val nsUrl = NSURL.URLWithString(url) ?: return@LaunchedEffect

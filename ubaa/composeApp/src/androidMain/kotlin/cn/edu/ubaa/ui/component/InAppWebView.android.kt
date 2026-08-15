@@ -17,6 +17,7 @@ actual fun InAppWebView(
     injectJsOnLoad: String?,
     cookies: List<String>,
     onSchemeUrl: ((String) -> Boolean)?,
+    onPageError: ((String) -> Unit)?,
 ) {
     AndroidView(
         factory = { context ->
@@ -38,8 +39,41 @@ actual fun InAppWebView(
                   }
                 }
 
+                webChromeClient =
+                    object : android.webkit.WebChromeClient() {
+                      override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
+                        val msg = "${message.message()} (${message.lineNumber()})"
+                        if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR ||
+                            msg.contains("error") || msg.contains("Error") || msg.contains("undefined")) {
+                          onPageError?.invoke(msg.take(300))
+                        }
+                        return super.onConsoleMessage(message)
+                      }
+                      override fun onJsAlert(
+                          view: WebView?,
+                          url: String?,
+                          message: String?,
+                          result: android.webkit.JsResult?,
+                      ): Boolean {
+                        message?.let { onPageError?.invoke("JS:${it.take(200)}") }
+                        result?.confirm()
+                        return true
+                      }
+                    }
+
                 webViewClient =
                     object : WebViewClient() {
+                      override fun onReceivedError(
+                          view: WebView,
+                          request: WebResourceRequest,
+                          error: android.webkit.WebResourceError,
+                      ) {
+                        if (request.url.toString().contains("bundle.js") ||
+                            request.url.toString().contains(".js")) {
+                          onPageError?.invoke("加载JS失败: ${error.errorCode} ${error.description} ${request.url}")
+                        }
+                      }
+
                       override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                         val target = request.url.toString()
                         val isHttp = target.startsWith("http://") || target.startsWith("https://")

@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
  * @param cookies 注入的 Cookie，格式 "name=value"。仅 Android 生效。
  * @param onSchemeUrl 当 WebView 尝试加载非 http(s) 的自定义 scheme(如 weixin:// / alipays://)时回调，
  *   返回 true 表示该 scheme 已被消费（如交给系统 Intent 唤起支付 App）。仅 Android 生效。
+ * @param onPageError 页面加载出错或 console 报错时回调（用于诊断收银台渲染问题）。仅 Android 生效。
  */
 @Composable
 expect fun InAppWebView(
@@ -20,4 +21,5 @@ expect fun InAppWebView(
     injectJsOnLoad: String? = null,
     cookies: List<String> = emptyList(),
     onSchemeUrl: ((String) -> Boolean)? = null,
+    onPageError: ((String) -> Unit)? = null,
 )

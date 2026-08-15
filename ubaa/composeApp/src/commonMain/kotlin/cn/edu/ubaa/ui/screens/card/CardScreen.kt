@@ -129,13 +129,32 @@ fun CardScreen(
 
   // 方案A：收银台网页覆盖层（在网页里点微信支付，由 WebView 浏览器环境唤起微信）
   uiState.cashierUrl?.let { cashierUrl ->
+    var cashierError by remember(cashierUrl) { mutableStateOf<String?>(null) }
     Dialog(onDismissRequest = onClearCashier, properties = DialogProperties(usePlatformDefaultWidth = false)) {
       Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         InAppWebView(
             url = cashierUrl,
             modifier = Modifier.fillMaxSize(),
             cookies = buildCcpayCookieHeader().split("; ").filter { it.trim().isNotEmpty() },
+            onPageError = { msg -> cashierError = (cashierError ?: "") + "\n" + msg },
         )
+        // 调试：显示收银台 JS 渲染错误
+        cashierError?.let { err ->
+          Card(
+              modifier = Modifier
+                  .align(Alignment.TopCenter)
+                  .fillMaxWidth()
+                  .padding(top = 48.dp, start = 8.dp, end = 8.dp),
+              colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+          ) {
+            Text(
+                text = "收银台渲染提示:\n$err",
+                modifier = Modifier.padding(8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+          }
+        }
         IconButton(
             onClick = onClearCashier,
             modifier = Modifier
