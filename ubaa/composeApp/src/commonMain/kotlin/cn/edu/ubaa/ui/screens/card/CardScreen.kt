@@ -1,5 +1,7 @@
 package cn.edu.ubaa.ui.screens.card
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -8,7 +10,7 @@ import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AddCard
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
@@ -16,16 +18,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.foundation.background
-import cn.edu.ubaa.api.local.buildCcpayCookieHeader
+import cn.edu.ubaa.api.feature.CardPayWay
 import cn.edu.ubaa.ui.component.InAppWebView
 
 @OptIn(ExperimentalMaterialApi::class)
@@ -34,13 +34,24 @@ fun CardScreen(
     uiState: CardUiState,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
+    onLoadPayWays: () -> Unit,
     onAmountChange: (String) -> Unit,
-    onBeginRecharge: () -> Unit,
-    onOpenPay: (String) -> Unit,
-    onClearPayUrl: () -> Unit,
-    onClearCashier: () -> Unit,
+    onBeginRecharge: (String) -> Unit,
+    onClearPayScheme: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+  val payScheme = uiState.payScheme
+  // 用户点"确认支付"后拿到支付 scheme(weixin:// / alipays://)，
+  // 用一个不可见的 WebView 加载一段 HTML，由浏览器内核触发 location.href 跳 scheme，
+  // 从而按"浏览器来源"可靠唤起支付 App（App 直接 Intent 唤起微信不可靠）。
+  if (payScheme != null) {
+    SchemeTriggerWebView(
+        scheme = payScheme,
+        modifier = Modifier.size(1.dp),
+        onConsumed = onClearPayScheme,
+    )
+  }
+
   val pullRefreshState = rememberPullRefreshState(refreshing = uiState.isRefreshing, onRefresh = onRefresh)
 
   Box(modifier = modifier.fillMaxSize().pullRefresh(pullRefreshState)) {
@@ -93,7 +104,14 @@ fun CardScreen(
 
           item { Spacer(modifier = Modifier.height(8.dp)) }
 
-          item { RechargeSection(uiState, onAmountChange, onBeginRecharge) }
+          item {
+            RechargeSection(
+                uiState = uiState,
+                onLoadPayWays = onLoadPayWays,
+                onAmountChange = onAmountChange,
+                onBeginRecharge = onBeginRecharge,
+            )
+          }
         }
       }
 
@@ -106,76 +124,44 @@ fun CardScreen(
         modifier = Modifier.align(Alignment.TopCenter),
     )
   }
+}
 
-  // 支付跳转确认对话框
-  uiState.payUrl?.let { url ->
-    AlertDialog(
-        onDismissRequest = onClearPayUrl,
-        title = { Text("去支付") },
-        text = { Text("将拉起支付应用完成付款。") },
-        confirmButton = {
-          TextButton(
-              onClick = {
-                onOpenPay(url)
-                onClearPayUrl()
-              }
-          ) {
-            Text("打开支付")
-          }
-        },
-        dismissButton = { TextButton(onClick = onClearPayUrl) { Text("取消") } },
-    )
-  }
-
-  // 方案A：收银台网页覆盖层（在网页里点微信支付，由 WebView 浏览器环境唤起微信）
-  uiState.cashierUrl?.let { cashierUrl ->
-    var cashierError by remember(cashierUrl) { mutableStateOf<String?>(null) }
-    Dialog(onDismissRequest = onClearCashier, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-      Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        InAppWebView(
-            url = cashierUrl,
-            modifier = Modifier.fillMaxSize(),
-            cookies = buildCcpayCookieHeader().split("; ").filter { it.trim().isNotEmpty() },
-            onPageError = { msg -> cashierError = (cashierError ?: "") + "\n" + msg },
-        )
-        // 调试：显示收银台 JS 渲染错误
-        cashierError?.let { err ->
-          Card(
-              modifier = Modifier
-                  .align(Alignment.TopCenter)
-                  .fillMaxWidth()
-                  .padding(top = 48.dp, start = 8.dp, end = 8.dp),
-              colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-          ) {
-            Text(
-                text = "收银台渲染提示:\n$err",
-                modifier = Modifier.padding(8.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-            )
-          }
-        }
-        IconButton(
-            onClick = onClearCashier,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp)
-                .background(MaterialTheme.colorScheme.surface, CircleShape),
-        ) {
-          Icon(Icons.Default.Close, contentDescription = "关闭支付")
-        }
-      }
-    }
+/** 用不可见 WebView 的浏览器环境触发自定义支付 scheme 唤起支付 App。 */
+@Composable
+private fun SchemeTriggerWebView(
+    scheme: String,
+    modifier: Modifier,
+    onConsumed: () -> Unit,
+) {
+  val html =
+      "<!DOCTYPE html><html><body style='margin:0;background:#fff' " +
+          "onload=\"window.location.href='${htmlEscape(scheme)}'\"></body></html>"
+  InAppWebView(
+      url = "https://cashier.cc-pay.cn/cashier",
+      modifier = modifier,
+      htmlContent = html,
+  )
+  LaunchedEffect(scheme) {
+    // 待 WebView 触发 scheme 后，短暂延迟清理触发态，避免重复
+    kotlinx.coroutines.delay(1500)
+    onConsumed()
   }
 }
+
+/** 将字符串转义为可安全放入 HTML 属性(单引号字符串)的形式。 */
+private fun htmlEscape(s: String): String =
+    s.replace("&", "&amp;").replace("'", "&#39;").replace("\"", "&quot;")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RechargeSection(
     uiState: CardUiState,
+    onLoadPayWays: () -> Unit,
     onAmountChange: (String) -> Unit,
-    onBeginRecharge: () -> Unit,
+    onBeginRecharge: (String) -> Unit,
 ) {
+  var selectedPayWay by remember { mutableStateOf<String?>(null) }
+
   Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(20.dp),
@@ -199,18 +185,70 @@ private fun RechargeSection(
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-      Text("支付方式将在收银台页面中选择", style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant)
+      // 支付方式
+      if (uiState.isLoadingPayWays) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+          Text("加载支付方式...", style = MaterialTheme.typography.bodySmall)
+        }
+      } else if (uiState.payWays.isEmpty()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          Text("选择支付方式", style = MaterialTheme.typography.bodySmall)
+          TextButton(onClick = onLoadPayWays) { Text("加载") }
+        }
+      } else {
+        Text("选择支付方式", style = MaterialTheme.typography.titleSmall)
+        FlowRowForPayWays(
+            payWays = uiState.payWays,
+            selectedPayWay = selectedPayWay,
+            onSelect = { selectedPayWay = it },
+        )
+      }
 
       Button(
-          onClick = onBeginRecharge,
-          enabled = uiState.amount.isNotBlank() && !uiState.isRecharging,
+          onClick = {
+            val way = selectedPayWay ?: return@Button
+            onBeginRecharge(way)
+          },
+          enabled = uiState.amount.isNotBlank() && selectedPayWay != null && !uiState.isRecharging,
           modifier = Modifier.fillMaxWidth().height(48.dp),
       ) {
         if (uiState.isRecharging) {
           CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
         } else {
           Text("确认充值")
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun FlowRowForPayWays(
+    payWays: List<CardPayWay>,
+    selectedPayWay: String?,
+    onSelect: (String) -> Unit,
+) {
+  Column(
+      modifier = Modifier.fillMaxWidth(),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
+    payWays.forEach { way ->
+      val selected = way.id == selectedPayWay
+      Row(
+          modifier = Modifier
+              .fillMaxWidth()
+              .clip(MaterialTheme.shapes.small)
+              .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant)
+              .clickable { onSelect(way.id) }
+              .padding(horizontal = 16.dp, vertical = 14.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.SpaceBetween,
+      ) {
+        Text(way.text.ifBlank { way.name }, style = MaterialTheme.typography.bodyLarge)
+        if (selected) {
+          Icon(Icons.Default.CheckCircle, contentDescription = "已选择",
+              tint = MaterialTheme.colorScheme.primary)
         }
       }
     }

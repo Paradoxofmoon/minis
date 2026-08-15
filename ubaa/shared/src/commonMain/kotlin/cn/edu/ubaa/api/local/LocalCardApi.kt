@@ -112,15 +112,10 @@ internal class LocalCardApiBackend : CardApiBackend {
       val (transactionId, cashierUrl) = createTransaction(amount, itemId, stuNo, realName)
       platformLog("CR", "交易创建完成: $transactionId  cashierUrl=$cashierUrl")
 
-      // 方案A：不在此处调用 initiatePay，否则会把支付方式锁定在订单上，
-      // 导致收银台网页里"已选择其他支付方式，更换请重新下单"无法换。
-      // 直接把收银台网页地址交给 WebView，由用户在网页里选支付方式完成支付。
-      if (cashierUrl.isNotBlank()) {
-        return Result.success(CardRechargeResult(cashierUrl = cashierUrl))
-      }
-      // 兜底：无收银台地址时才退回 initiatePay 取 weixin:// scheme
+      // 方案一：经由我们 App 自制的支付界面，用户已选定 payWayId（微信/支付宝）。
+      // 直接调 initiatePay 拿 weixin:// / alipays:// scheme，用隐藏 WebView 唤起支付 App。
       val payResult = initiatePay(transactionId, payWayId)
-      platformLog("CR", "兜底发起支付完成: payUrl=${payResult.payUrl} qrcode=${payResult.payQrCode}")
+      platformLog("CR", "发起支付完成: payUrl=${payResult.payUrl} qrcode=${payResult.payQrCode}")
       Result.success(payResult)
     } catch (e: ApiCallException) {
       platformLog("CR", "充值失败(ApiCall): ${e.message} :: ${e.status}")

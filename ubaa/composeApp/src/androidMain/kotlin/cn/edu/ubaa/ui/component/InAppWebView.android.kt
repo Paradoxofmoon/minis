@@ -18,6 +18,7 @@ actual fun InAppWebView(
     cookies: List<String>,
     onSchemeUrl: ((String) -> Boolean)?,
     onPageError: ((String) -> Unit)?,
+    htmlContent: String?,
 ) {
     AndroidView(
         factory = { context ->
@@ -105,10 +106,21 @@ actual fun InAppWebView(
                         }
                       }
                     }
-                loadUrl(url)
+                if (!htmlContent.isNullOrBlank()) {
+                  // 提供 htmlContent 时，仅加载 HTML（用于触发自定义 scheme），不加载 url
+                  loadDataWithBaseURL(url, htmlContent, "text/html; charset=utf-8", "UTF-8", null)
+                } else {
+                  loadUrl(url)
+                }
             }
         },
         modifier = modifier,
-        update = { it.loadUrl(url) },
+        update = { view ->
+          if (!htmlContent.isNullOrBlank()) {
+            view.loadDataWithBaseURL(url, htmlContent, "text/html; charset=utf-8", "UTF-8", null)
+          } else {
+            view.loadUrl(url)
+          }
+        },
     )
 }

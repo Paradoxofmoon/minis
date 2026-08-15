@@ -16,6 +16,7 @@ actual fun InAppWebView(
     cookies: List<String>,
     onSchemeUrl: ((String) -> Boolean)?,
     onPageError: ((String) -> Unit)?,
+    htmlContent: String?,
 ) {
     val uriHandler = LocalUriHandler.current
     Column(

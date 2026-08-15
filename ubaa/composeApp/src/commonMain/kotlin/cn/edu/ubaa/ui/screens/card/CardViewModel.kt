@@ -3,6 +3,7 @@ package cn.edu.ubaa.ui.screens.card
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.ubaa.api.feature.CardApi
+import cn.edu.ubaa.api.feature.CardPayWay
 import cn.edu.ubaa.api.feature.CardRechargeResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,9 +18,10 @@ data class CardUiState(
     val error: String? = null,
     // ---- 充值状态 ----
     val amount: String = "",
+    val payWays: List<CardPayWay> = emptyList(),
+    val isLoadingPayWays: Boolean = false,
     val isRecharging: Boolean = false,
-    val payUrl: String? = null,
-    val cashierUrl: String? = null,
+    val payScheme: String? = null,
 )
 
 /** 校园卡余额查询 + 充值 ViewModel。 */
@@ -40,6 +42,7 @@ class CardViewModel(
   /** 下拉刷新入口。 */
   fun refresh() {
     loadBalance()
+    loadPayWays()
   }
 
   /** 重置内部加载标记与 UI 状态，用于连接模式切换等场景。 */
@@ -83,12 +86,33 @@ class CardViewModel(
 
   // ===== 充值 =====
 
+  /** 加载充值可用的支付方式（移动端 App 直接支付方式）。 */
+  fun loadPayWays() {
+    if (_state.value.isLoadingPayWays) return
+    _state.value = _state.value.copy(isLoadingPayWays = true, error = null)
+    viewModelScope.launch {
+      cardApi
+          .getRechargePayWays()
+          .onSuccess { ways ->
+            _state.value =
+                _state.value.copy(isLoadingPayWays = false, payWays = ways)
+          }
+          .onFailure { error ->
+            _state.value =
+                _state.value.copy(
+                    isLoadingPayWays = false,
+                    error = error.message ?: "加载支付方式失败",
+                )
+          }
+    }
+  }
+
   fun onAmountChange(value: String) {
     _state.value = _state.value.copy(amount = value)
   }
 
-  /** 发起充值：创建订单，跳转收银台网页（支付方式在网页里选择）。 */
-  fun beginRecharge() {
+  /** 发起充值：下单并取得支付 scheme(weixin:// 或 alipays://)，交隐藏 WebView 唤起支付 App。 */
+  fun beginRecharge(payWayId: String) {
     val amount = _state.value.amount
     if (amount.isBlank()) {
       _state.value = _state.value.copy(error = "请输入充值金额")
@@ -99,22 +123,19 @@ class CardViewModel(
       _state.value = _state.value.copy(error = "充值金额需在 1~90000 元之间")
       return
     }
-    _state.value = _state.value.copy(isRecharging = true, error = null)
+    _state.value = _state.value.copy(isRecharging = true, error = null, payScheme = null)
     viewModelScope.launch {
-      // payWayId 在收银台网页里选择，此处固定传空串（LocalCardApi 直接返 cashierUrl 不发起支付）
       cardApi
-          .beginRecharge(amount, "")
+          .beginRecharge(amount, payWayId)
           .onSuccess { result ->
-            val cashier = result.cashierUrl?.takeIf { it.isNotBlank() }
-            val directPay = resolvePayTarget(result)
+            val scheme =
+                result.payQrCode?.takeIf { it.isNotBlank() }
+                    ?: result.payUrl?.takeIf { it.isNotBlank() }
             _state.value =
                 _state.value.copy(
                     isRecharging = false,
-                    // 方案A：加载收银台网页(WebView 内选支付方式并唤起)；否则退回直接 scheme
-                    cashierUrl = cashier,
-                    payUrl = if (cashier != null) null else directPay,
-                    error =
-                        if (cashier == null && directPay.isNullOrBlank()) "未获取到支付地址" else null,
+                    payScheme = scheme,
+                    error = if (scheme.isNullOrBlank()) "未获取到支付地址" else null,
                 )
           }
           .onFailure { error ->
@@ -124,18 +145,9 @@ class CardViewModel(
     }
   }
 
-  private fun resolvePayTarget(result: CardRechargeResult): String? =
-      result.payUrl?.takeIf { it.isNotBlank() }
-          ?: result.payQrCode?.takeIf { it.isNotBlank() }
-
-  /** 支付地址已处理完成后清理。 */
-  fun clearPayUrl() {
-    _state.value = _state.value.copy(payUrl = null)
-  }
-
-  /** 关闭收银台网页覆盖层。 */
-  fun clearCashier() {
-    _state.value = _state.value.copy(cashierUrl = null)
+  /** 支付 scheme 已处理完成后清理。 */
+  fun clearPayScheme() {
+    _state.value = _state.value.copy(payScheme = null)
   }
 
   /** 清空错误提示。 */
