@@ -111,11 +111,16 @@ internal class LocalCardApiBackend : CardApiBackend {
       // 3. 创建交易订单，拿到收银台交易号 + 收银台地址
       val (transactionId, cashierUrl) = createTransaction(amount, itemId, stuNo, realName)
       platformLog("CR", "交易创建完成: $transactionId  cashierUrl=$cashierUrl")
-      // 4. 发起支付，拿到支付跳转地址
-      var payResult = initiatePay(transactionId, payWayId)
-      // 把收银台地址一并返回（方案A：WebView 加载收银台网页，让网页微信支付)
-      payResult = payResult.copy(cashierUrl = cashierUrl.ifBlank { null })
-      platformLog("CR", "发起支付完成: payUrl=${payResult.payUrl} qrcode=${payResult.payQrCode} cashier=${payResult.cashierUrl}")
+
+      // 方案A：不在此处调用 initiatePay，否则会把支付方式锁定在订单上，
+      // 导致收银台网页里"已选择其他支付方式，更换请重新下单"无法换。
+      // 直接把收银台网页地址交给 WebView，由用户在网页里选支付方式完成支付。
+      if (cashierUrl.isNotBlank()) {
+        return Result.success(CardRechargeResult(cashierUrl = cashierUrl))
+      }
+      // 兜底：无收银台地址时才退回 initiatePay 取 weixin:// scheme
+      val payResult = initiatePay(transactionId, payWayId)
+      platformLog("CR", "兜底发起支付完成: payUrl=${payResult.payUrl} qrcode=${payResult.payQrCode}")
       Result.success(payResult)
     } catch (e: ApiCallException) {
       platformLog("CR", "充值失败(ApiCall): ${e.message} :: ${e.status}")
