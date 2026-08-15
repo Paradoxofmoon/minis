@@ -62,6 +62,7 @@ dependencies {
   implementation(projects.composeApp)
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.work.runtime)
+  implementation(libs.kotlinx.datetime)
   implementation(compose.preview)
   debugImplementation(compose.uiTooling)
 }

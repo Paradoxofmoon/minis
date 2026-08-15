@@ -70,8 +70,8 @@ class ScheduleViewModel(
             // 落盘今日课表快照，供桌面小组件离线读取
             runCatching {
               val today =
-                  kotlin.time.Clock.System.now()
-                      .toLocalDateTime(kotlin.time.TimeZone.currentSystemDefault())
+                  kotlinx.datetime.Clock.System.now()
+                      .toLocalDateTime(kotlinx.datetime.TimeZone.currentSystemDefault())
                       .date
                       .toString()
               ScheduleSnapshotStore.save(today, it)
