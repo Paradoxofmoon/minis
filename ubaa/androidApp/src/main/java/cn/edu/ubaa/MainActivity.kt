@@ -7,7 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
-import cn.edu.ubaa.api.network.platformLogEnabled
+import cn.edu.ubaa.runtime.LogConfig
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -17,14 +17,8 @@ class MainActivity : ComponentActivity() {
     // release 构建(不可调试)关闭调试日志，提升性能与隐私
     val isDebuggable =
         (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
-    platformLogEnabled = isDebuggable
+    LogConfig.enabled = isDebuggable
 
     setContent { App() }
   }
-}
-
-@Preview
-@Composable
-fun AppAndroidPreview() {
-  App()
 }
