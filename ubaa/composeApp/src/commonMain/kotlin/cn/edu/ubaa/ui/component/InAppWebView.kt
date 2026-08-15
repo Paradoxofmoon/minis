@@ -21,6 +21,7 @@ expect fun InAppWebView(
     modifier: Modifier = Modifier,
     injectJsOnLoad: String? = null,
     cookies: List<String> = emptyList(),
+    domainCookies: List<Pair<String, String>> = emptyList(),
     onSchemeUrl: ((String) -> Boolean)? = null,
     onPageError: ((String) -> Unit)? = null,
     htmlContent: String? = null,

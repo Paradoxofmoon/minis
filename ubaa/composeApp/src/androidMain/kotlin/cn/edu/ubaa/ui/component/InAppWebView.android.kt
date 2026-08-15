@@ -16,6 +16,7 @@ actual fun InAppWebView(
     modifier: Modifier,
     injectJsOnLoad: String?,
     cookies: List<String>,
+    domainCookies: List<Pair<String, String>>,
     onSchemeUrl: ((String) -> Boolean)?,
     onPageError: ((String) -> Unit)?,
     htmlContent: String?,
@@ -34,17 +35,26 @@ actual fun InAppWebView(
                 // 不覆盖 UA：让收银台页按真实 Android WebView 环境正常渲染（避免支付方式图标/文字空白）。
                 // 微信支付唤起依赖网页 JS location.href 触发 weixin://，与 UA 无关。
 
-                if (cookies.isNotEmpty()) {
-                  runCatching {
-                    val cookieManager = CookieManager.getInstance()
-                    if (cookieManager != null) {
-                      cookieManager.setAcceptCookie(true)
-                      cookieManager.setAcceptThirdPartyCookies(this, true)
-                      cookies.forEach { cookie -> cookieManager.setCookie(url, cookie) }
-                      cookieManager.flush()
+                fun applyCookies() {
+                  if (cookies.isNotEmpty() || domainCookies.isNotEmpty()) {
+                    runCatching {
+                      val cookieManager = CookieManager.getInstance()
+                      if (cookieManager != null) {
+                        cookieManager.setAcceptCookie(true)
+                        cookieManager.setAcceptThirdPartyCookies(this, true)
+                        // 按真实域名注入（关键：CASTGC 需独立注入 sso.buaa.edu.cn，否则跨域无会话）
+                        domainCookies.forEach { (domainUrl, cookieStr) ->
+                          if (domainUrl.isNotBlank() && cookieStr.isNotBlank()) {
+                            cookieManager.setCookie(domainUrl, cookieStr)
+                          }
+                        }
+                        cookies.forEach { cookie -> cookieManager.setCookie(url, cookie) }
+                        cookieManager.flush()
+                      }
                     }
                   }
                 }
+                applyCookies()
 
                 webChromeClient =
                     object : android.webkit.WebChromeClient() {

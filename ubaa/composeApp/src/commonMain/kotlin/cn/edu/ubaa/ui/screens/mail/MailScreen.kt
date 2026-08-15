@@ -17,27 +17,28 @@ internal const val MAIL_URL = "https://it.buaa.edu.cn/frontend/mail/login"
  * 北航邮箱页：全屏 WebView 展示，复用 CAS 会话 cookie。
  *
  * 不包含自身 Scaffold/顶栏——顶栏由 MainAppScreen 的全局 AppTopBar 提供（统一风格、避免重复返回按钮）。
- * 刷新按钮放在右上角浮层。带登录加载态。
+ * 刷新按钮放在右下角 FAB。带登录加载态。
  *
- * @param mailCookie 由上层(MailViewModel)触发 CAS 登录后提取的 cookie
+ * @param domainCookies 按 cookie 真实域名分组的注入数据（List of <注入URL, "name=value;...">），
+ *   由上层(MailViewModel)触发 CAS 登录后从 MailPortal 提取。
  * @param onRefresh 点击刷新后由上层重新触发 ensureSession 并更新 cookie
  */
 @Composable
 fun MailScreen(
-    mailCookie: String,
+    domainCookies: List<Pair<String, String>>,
     loading: Boolean,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   var reloadKey by remember { mutableStateOf(0) }
   Box(modifier = modifier.fillMaxSize()) {
-    if (mailCookie.isNotBlank()) {
+    if (domainCookies.isNotEmpty()) {
       // cookie 就绪后用 WebView 展示邮箱；刷新时通过 reloadKey 重建 WebView 重载
       key(reloadKey) {
         InAppWebView(
             url = MAIL_URL,
             modifier = Modifier.fillMaxSize(),
-            cookies = mailCookie.split("; ").filter { it.trim().isNotEmpty() },
+            domainCookies = domainCookies.filter { it.second.isNotBlank() },
         )
       }
     } else if (loading) {
@@ -55,13 +56,13 @@ fun MailScreen(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
           Text("邮箱登录未完成", style = MaterialTheme.typography.titleMedium)
           Spacer(Modifier.height(8.dp))
-          Text("请稍后点击右上角刷新重试", style = MaterialTheme.typography.bodyMedium)
+          Text("请稍后点击右下角刷新重试", style = MaterialTheme.typography.bodyMedium)
         }
       }
     }
 
-    // 右上角刷新浮层按钮
-    if (mailCookie.isNotBlank()) {
+    // 右下角刷新浮层按钮
+    if (domainCookies.isNotEmpty()) {
       FloatingActionButton(
           onClick = {
             reloadKey++

@@ -14,6 +14,7 @@ actual fun InAppWebView(
     modifier: Modifier,
     injectJsOnLoad: String?,
     cookies: List<String>,
+    domainCookies: List<Pair<String, String>>,
     onSchemeUrl: ((String) -> Boolean)?,
     onPageError: ((String) -> Unit)?,
     htmlContent: String?,

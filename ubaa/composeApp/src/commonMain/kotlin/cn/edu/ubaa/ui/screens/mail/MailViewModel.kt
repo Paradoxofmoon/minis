@@ -10,7 +10,7 @@ import kotlinx.coroutines.launch
 
 data class MailUiState(
     val isLoading: Boolean = false,
-    val cookie: String = "",
+    val domainCookies: List<Pair<String, String>> = emptyList(),
     val error: String? = null,
 )
 
@@ -31,8 +31,8 @@ class MailViewModel : ViewModel() {
     viewModelScope.launch {
       MailPortal.ensureSession()
           .onSuccess {
-            val cookie = MailPortal.cookieHeader()
-            _state.value = _state.value.copy(isLoading = false, cookie = cookie, error = null)
+            val cookies = MailPortal.domainCookieHeaders()
+            _state.value = _state.value.copy(isLoading = false, domainCookies = cookies, error = null)
           }
           .onFailure { e ->
             _state.value =

@@ -65,4 +65,41 @@ object MailPortal {
     }
     return parts.distinct().joinToString("; ")
   }
+
+  /**
+   * 供 WebView 按域注入的 cookie 集合。
+   *
+   * 邮箱场景涉及两个完全独立的域：SSO 统一认证(sso.buaa.edu.cn)与邮箱系统(it.buaa.edu.cn / mail.buaa.edu.cn)。
+   * WebView 的 CookieManager.setCookie(url, cookie) 会把 cookie 存到 url 所在的域，
+   * 若把 CASTGC 一起塞进 it.buaa.edu.cn 域，WebView 访问 mail/login 被 302 到 sso 域时仍无 CASTGC 会被判定未登录。
+   * 因此必须按 cookie 的真实 domain 拆分，分别注入对应域。
+   *
+   * @return List of (注入目标 URL, "name=value; name=value");空列表表示无可注入 cookie。
+   */
+  fun domainCookieHeaders(): List<Pair<String, String>> {
+    val mode = ConnectionRuntime.currentMode()?.takeIf { it != ConnectionMode.SERVER_RELAY } ?: ConnectionMode.DIRECT
+    val records = LocalCookieStore.load(mode)
+    // 目标域 → 该域的 cookie 片段集合
+    val sso = mutableListOf<String>()
+    val portal = mutableListOf<String>()
+    for (record in records) {
+      val cookie = record.cookie
+      val domain = (cookie.domain ?: "").lowercase()
+      val name = cookie.name
+      val value = cookie.value
+      if (name.isBlank() || value.isBlank()) continue
+      val isSso =
+          cookie.name == "CASTGC" || cookie.name.startsWith("sso_buaa") ||
+              domain.endsWith("sso.buaa.edu.cn")
+      val isPortal =
+          domain.endsWith("it.buaa.edu.cn") || domain.endsWith("mail.buaa.edu.cn") ||
+              domain == "buaa.edu.cn"
+      if (isSso) sso += "$name=$value"
+      else if (isPortal) portal += "$name=$value"
+    }
+    val result = mutableListOf<Pair<String, String>>()
+    if (sso.isNotEmpty()) result += "https://sso.buaa.edu.cn" to sso.distinct().joinToString("; ")
+    if (portal.isNotEmpty()) result += MAIL_ENTRY to portal.distinct().joinToString("; ")
+    return result
+  }
 }
