@@ -57,16 +57,22 @@ object MailProbe {
       sb.appendLine()
       sb.appendLine("cookieNames=" + names.distinct().joinToString(",").take(600))
 
-      // 3) 若拿到 sid，再试拉一页收件箱(验证接口可调)
+      // 3) 若拿到 sid，用精确的 Coremail 协议拉一页收件箱(对齐 HAR:Referer/X-Requested-With/桌面UA)
       if (hasCoremailSid) {
         try {
-          val listUrl = "$MAIL_ENTRY".replace("/index.jsp", "") +
-              "/s/json?sid=${coremailSid}&func=mbox%3AlistMessages"
+          val listUrl = "https://mail.buaa.edu.cn/coremail/s/json?sid=$coremailSid&func=mbox%3AlistMessages"
+          val referer = "https://mail.buaa.edu.cn/coremail/XT/index.jsp?sid=$coremailSid"
+          val ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
           val lr = client.post(localUpstreamUrl(listUrl)) {
+            header("Accept", "text/x-json")
             header("Content-Type", "text/x-json; tz=\"Asia/Shanghai\"")
-            setBody("""{"start":0,"limit":5,"mode":"count","order":"receivedDate","desc":true,"returnTotal":true,"returnTag":false,"summaryWindowSize":5,"fid":1,"mboxa":"","topFirst":true}""")
+            header("X-Requested-With", "XMLHttpRequest")
+            header("Referer", referer)
+            header("Origin", "https://mail.buaa.edu.cn")
+            header("User-Agent", ua)
+            setBody("""{"start":0,"limit":3,"mode":"count","order":"receivedDate","desc":true,"returnTotal":true,"returnTag":false,"summaryWindowSize":3,"fid":1,"mboxa":"","topFirst":true}""")
           }
-          sb.appendLine("listMessages status=${lr.status.value} body=${lr.bodyAsText().take(300)}")
+          sb.appendLine("listMessages status=${lr.status.value} body=${lr.bodyAsText().take(400)}")
         } catch (pe: Exception) {
           sb.appendLine("listMessages err: ${pe.message}")
         }
