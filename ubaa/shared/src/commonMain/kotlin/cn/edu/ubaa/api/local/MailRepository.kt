@@ -35,7 +35,8 @@ data class CoremailBoxResponse(
     val code: String = "",
     val desc: String? = null,
     @SerialName("var") val items: List<CoremailMessage> = emptyList(),
-    @SerialName("returnTotal") val total: Long = 0,
+    val total: Long = 0,
+    val midoffset: String = "",
 )
 
 /** listMessages 返回的分页结果。 */
