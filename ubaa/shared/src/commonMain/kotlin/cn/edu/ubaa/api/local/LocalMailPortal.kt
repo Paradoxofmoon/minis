@@ -11,33 +11,31 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.encodeURLParameter
 
 /**
- * 北航邮箱（it.buaa.edu.cn / mail.buaa.edu.cn，Coremail）CAS 登录与会话桥接。
+ * 北航邮箱（mail.buaa.edu.cn，Coremail）CAS 登录与会话桥接。
  *
- * 邮箱登录走北航统一身份认证（sso.buaa.edu.cn）。复用 UBAA 已建立的 CASTGC 会话，
- * CAS 跳转到 it.buaa.edu.cn 邮箱入口，获取其会话 cookie 供 WebView 注入展示邮箱。
+ * 邮箱系统是 Coremail（mail.buaa.edu.cn），通过北航统一身份认证(sso.buaa.edu.cn)登录。
+ * 复用 UBAA 已建立的 SSO 会话 cookie（_zte_sid_/_7da9a/insert_cookie/_zte_cid_ 等），
+ * 先在 Ktor 侧访问 Coremail 收件箱入口触发校验、换取 Coremail.sid 会话 cookie，
+ * 再把这些会话 cookie 按真实域名注入 WebView，使 WebView 加载收件箱即已登录。
  */
 object MailPortal {
-  private const val MAIL_SERVICE = "https://it.buaa.edu.cn/frontend/login/index?redirect=https%3A%2F%2Fit.buaa.edu.cn%2Ffrontend%2Fmail%2Flogin"
-  private const val MAIL_ENTRY = "https://it.buaa.edu.cn/frontend/mail/login"
+  // Coremail 收件箱入口（真实邮箱域，非 WAP 版）
+  private const val MAIL_ENTRY = "https://mail.buaa.edu.cn/coremail/XT/index.jsp"
 
-  /** 触发 CAS 登录到 it.buaa.edu.cn 邮箱，使 jar 持有其会话 cookie。 */
+  /**
+   * 触发 Coremail 邮箱登录：携带已有 SSO 会话访问收件箱入口，
+   * 使 shared client 的 cookie jar 持有 Coremail.sid 等邮箱会话 cookie。
+   */
   suspend fun ensureSession(): Result<Unit> {
     return try {
       val client = LocalUpstreamClientProvider.shared()
-      // 带 CASTGC 访问 SSO login?service=<it 邮箱>，SSO 自动 302 到邮箱入口并种下会话 cookie
-      val encodedService = MAIL_SERVICE.encodeURLParameter()
-      val loginUrl = "https://sso.buaa.edu.cn/login?service=$encodedService"
-      val r = client.get(localUpstreamUrl(loginUrl)) {
+      // 带 SSO 会话访问 Coremail 收件箱，Coremail 校验后种 sid / 重定向到收件箱
+      val r = client.get(localUpstreamUrl(MAIL_ENTRY)) {
         header(HttpHeaders.Accept, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
       }
-      platformLog("MAIL", "CAS跳转邮箱: status=${r.status}")
-      // 触达信息平台邮箱入口，落地会话 cookie
-      val r2 = client.get(localUpstreamUrl(MAIL_ENTRY)) {
-        header(HttpHeaders.Accept, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-      }
-      platformLog("MAIL", "it邮箱入口触达: status=${r2.status}")
-      if (r.status == HttpStatusCode.Unauthorized || r2.status == HttpStatusCode.Unauthorized) {
-        Result.failure(ApiCallException("邮箱登录需重新认证", HttpStatusCode.Unauthorized, "mail_error"))
+      platformLog("MAIL", "Coremail收件箱触达: status=${r.status}")
+      if (r.status == HttpStatusCode.Unauthorized || r.status == HttpStatusCode.Forbidden) {
+        Result.failure(ApiCallException("邮箱登录需重新认证", r.status, "mail_error"))
       } else {
         Result.success(Unit)
       }
@@ -47,59 +45,72 @@ object MailPortal {
     }
   }
 
-  /** 提取 it.buaa.edu.cn / mail.buaa.edu.cn / SSO 相关 cookie（供 WebView 注入）。 */
-  fun cookieHeader(): String {
+  /**
+   * 构建 WebView 收件箱 URL。Coremail 的收件箱地址带 sid 参数（index.jsp?sid=<值>），
+   * 该 sid 与 Coremail.sid cookie 相同。从已持有的 cookie 中提取并拼到 URL，
+   * 使 WebView 直接命中已验证的收件箱会话；若无 sid 则回退到不带参数入口。
+   */
+  fun buildMailUrl(): String {
     val mode = ConnectionRuntime.currentMode()?.takeIf { it != ConnectionMode.SERVER_RELAY } ?: ConnectionMode.DIRECT
     val records = LocalCookieStore.load(mode)
-    val parts = mutableListOf<String>()
     for (record in records) {
       val cookie = record.cookie
-      val domain = (cookie.domain ?: "").lowercase()
-      val isPortal = domain.endsWith("it.buaa.edu.cn") || domain.endsWith("mail.buaa.edu.cn") || domain == "buaa.edu.cn"
-      val isSso = cookie.name == "CASTGC" || cookie.name.startsWith("sso_buaa") || domain.endsWith("sso.buaa.edu.cn")
-      if (isPortal || isSso) {
-        val name = cookie.name
-        val value = cookie.value
-        if (name.isNotBlank() && value.isNotBlank()) parts += "$name=$value"
+      if (cookie.name == "Coremail.sid" && cookie.value.isNotBlank()) {
+        return "$MAIL_ENTRY?sid=${cookie.value.encodeURLParameter()}"
       }
     }
-    return parts.distinct().joinToString("; ")
+    return MAIL_ENTRY
+  }
+
+  /**
+   * 提取邮箱相关 cookie（兼容旧调用，单串拼接）。
+   */
+  fun cookieHeader(): String {
+    return domainCookieHeaders().joinToString("; ") { it.second }
   }
 
   /**
    * 供 WebView 按域注入的 cookie 集合。
    *
-   * 邮箱场景涉及两个完全独立的域：SSO 统一认证(sso.buaa.edu.cn)与邮箱系统(it.buaa.edu.cn / mail.buaa.edu.cn)。
-   * WebView 的 CookieManager.setCookie(url, cookie) 会把 cookie 存到 url 所在的域，
-   * 若把 CASTGC 一起塞进 it.buaa.edu.cn 域，WebView 访问 mail/login 被 302 到 sso 域时仍无 CASTGC 会被判定未登录。
-   * 因此必须按 cookie 的真实 domain 拆分，分别注入对应域。
+   * Coremail 邮箱涉及多个独立域名，必须按 cookie 的真实 domain 分别注入：
+   *   - sso.buaa.edu.cn ← CASTGC / _zte_sid_ / _7da9a / insert_cookie / JSESSIONID（SSO 会话）
+   *   - .buaa.edu.cn     ← _zte_cid_（通配父域，SSO 与邮箱共用）
+   *   - mail.buaa.edu.cn ← Coremail / Coremail.sid（Coremail 邮箱会话）
    *
-   * @return List of (注入目标 URL, "name=value; name=value");空列表表示无可注入 cookie。
+   * @return List of (注入目标 URL, "name=value; name=value")；空列表表示无可注入 cookie。
    */
   fun domainCookieHeaders(): List<Pair<String, String>> {
     val mode = ConnectionRuntime.currentMode()?.takeIf { it != ConnectionMode.SERVER_RELAY } ?: ConnectionMode.DIRECT
     val records = LocalCookieStore.load(mode)
-    // 目标域 → 该域的 cookie 片段集合
     val sso = mutableListOf<String>()
-    val portal = mutableListOf<String>()
+    val port = mutableListOf<String>() // .buaa.edu.cn 通配
+    val mail = mutableListOf<String>()
     for (record in records) {
       val cookie = record.cookie
       val domain = (cookie.domain ?: "").lowercase()
       val name = cookie.name
       val value = cookie.value
       if (name.isBlank() || value.isBlank()) continue
-      val isSso =
-          cookie.name == "CASTGC" || cookie.name.startsWith("sso_buaa") ||
-              domain.endsWith("sso.buaa.edu.cn")
-      val isPortal =
-          domain.endsWith("it.buaa.edu.cn") || domain.endsWith("mail.buaa.edu.cn") ||
-              domain == "buaa.edu.cn"
-      if (isSso) sso += "$name=$value"
-      else if (isPortal) portal += "$name=$value"
+      when {
+        // SSO 统一认证域
+        name == "CASTGC" || name.startsWith("sso_buaa") || domain.endsWith("sso.buaa.edu.cn") -> {
+          sso += "$name=$value"
+        }
+        // .buaa.edu.cn 通配父域（_zte_cid_）
+        domain == ".buaa.edu.cn" -> {
+          port += "$name=$value"
+        }
+        // Coremail 邮箱域
+        domain.endsWith("mail.buaa.edu.cn") -> {
+          mail += "$name=$value"
+        }
+      }
     }
     val result = mutableListOf<Pair<String, String>>()
     if (sso.isNotEmpty()) result += "https://sso.buaa.edu.cn" to sso.distinct().joinToString("; ")
-    if (portal.isNotEmpty()) result += MAIL_ENTRY to portal.distinct().joinToString("; ")
+    // _zte_cid_ 是 .buaa.edu.cn 通配父域 cookie；显式带 Domain 属性确保能发给 mail/sso 等所有子域
+    if (port.isNotEmpty()) result += "https://buaa.edu.cn" to port.distinct().joinToString("; ") { "$it; Domain=.buaa.edu.cn" }
+    if (mail.isNotEmpty()) result += MAIL_ENTRY to mail.distinct().joinToString("; ")
     return result
   }
 }

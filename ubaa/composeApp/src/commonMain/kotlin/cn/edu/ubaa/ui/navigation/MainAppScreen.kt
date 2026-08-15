@@ -1051,6 +1051,7 @@ fun MainAppScreen(
               mailViewModel?.let {
                 MailScreen(
                     domainCookies = mailUiState.domainCookies,
+                    mailUrl = mailUiState.mailUrl,
                     loading = mailUiState.isLoading,
                     onRefresh = { it.ensureLoaded(force = true) },
                 )
