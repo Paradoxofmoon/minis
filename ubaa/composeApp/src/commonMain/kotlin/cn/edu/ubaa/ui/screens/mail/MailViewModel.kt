@@ -41,8 +41,13 @@ class MailViewModel : ViewModel() {
     }
   }
 
-  fun reset() {
+  /** 重置加载标记与 UI 状态，用于连接模式切换等场景。 */
+  fun resetLoadedState() {
     loadedOnce = false
     _state.value = MailUiState()
+  }
+
+  fun reset() {
+    resetLoadedState()
   }
 }
