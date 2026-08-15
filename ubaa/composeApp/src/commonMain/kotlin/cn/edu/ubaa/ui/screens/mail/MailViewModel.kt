@@ -2,8 +2,8 @@ package cn.edu.ubaa.ui.screens.mail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import cn.edu.ubaa.api.local.MailPortal
-import cn.edu.ubaa.api.local.MailProbe
+import cn.edu.ubaa.api.local.CoremailMessage
+import cn.edu.ubaa.api.local.MailRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -11,13 +11,14 @@ import kotlinx.coroutines.launch
 
 data class MailUiState(
     val isLoading: Boolean = false,
-    val domainCookies: List<Pair<String, String>> = emptyList(),
-    val diagnostic: String = "",
+    val messages: List<CoremailMessage> = emptyList(),
     val error: String? = null,
+    val lastRefresh: Long = 0L,
 )
 
 /**
- * 北航邮箱 ViewModel：进入页面时触发 CAS 登录到 it.buaa.edu.cn，提取会话 cookie 供 WebView 使用。
+ * 北航邮箱 ViewModel：原生列表展示收件箱邮件。
+ * 用 Ktor 调 Coremail JSON 接口（复用 UBAA SSO 会话换 sid），无需 WebView 渲染。
  */
 class MailViewModel : ViewModel() {
   private val _state = MutableStateFlow(MailUiState())
@@ -29,25 +30,29 @@ class MailViewModel : ViewModel() {
     if (loadedOnce && !force) return
     if (_state.value.isLoading) return
     loadedOnce = true
+    refresh()
+  }
+
+  fun refresh() {
+    if (_state.value.isLoading) return
     _state.value = _state.value.copy(isLoading = true, error = null)
     viewModelScope.launch {
-      // 阶段0诊断：用 Ktor 尝试换 Coremail.sid，报告显示在页面
-      val report = MailProbe.probe()
-      _state.value = _state.value.copy(diagnostic = report)
-      MailPortal.ensureSession()
-          .onSuccess {
-            val cookies = MailPortal.domainCookieHeaders()
-            _state.value =
-                _state.value.copy(isLoading = false, domainCookies = cookies, error = null)
+      MailRepository.listMessages(start = 0, limit = 30, fid = 1)
+          .onSuccess { msgs ->
+            _state.value = _state.value.copy(
+                isLoading = false,
+                messages = msgs,
+                lastRefresh = System.currentTimeMillis(),
+            )
           }
           .onFailure { e ->
             _state.value =
-                _state.value.copy(isLoading = false, error = e.message ?: "邮箱登录失败，请稍后重试")
+                _state.value.copy(isLoading = false, error = e.message ?: "加载邮件失败")
           }
     }
   }
 
-  /** 重置加载标记与 UI 状态，用于连接模式切换等场景。 */
+  /** 重置加载标记与状态，用于连接模式切换等场景。 */
   fun resetLoadedState() {
     loadedOnce = false
     _state.value = MailUiState()

@@ -1050,10 +1050,10 @@ fun MainAppScreen(
           AppScreen.MAIL ->
               mailViewModel?.let {
                 MailScreen(
-                    domainCookies = mailUiState.domainCookies,
+                    messages = mailUiState.messages,
                     loading = mailUiState.isLoading,
-                    diagnostic = mailUiState.diagnostic,
-                    onRefresh = { it.ensureLoaded(force = true) },
+                    error = mailUiState.error,
+                    onRefresh = { it.refresh() },
                 )
               }
           AppScreen.YGDK_HOME ->
