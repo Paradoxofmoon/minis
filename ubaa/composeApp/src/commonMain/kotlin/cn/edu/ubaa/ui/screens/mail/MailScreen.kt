@@ -10,37 +10,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import cn.edu.ubaa.ui.component.InAppWebView
 
-/** 北航 Coremail 邮箱收件箱入口 URL 兜底（WebView 展示，需注入 SSO+Coremail 会话 cookie）。 */
-internal const val MAIL_URL = "https://mail.buaa.edu.cn/coremail/XT/index.jsp"
+/** 北航邮箱 WAP 入口（能触发 CAS 认证，WebView 加载后自动跳转到 Coremail 收件箱）。 */
+internal const val MAIL_URL = "https://it.buaa.edu.cn/frontend/mail/login"
 
 /**
  * 北航邮箱页：全屏 WebView 展示，复用 CAS 会话 cookie。
  *
- * 不包含自身 Scaffold/顶栏——顶栏由 MainAppScreen 的全局 AppTopBar 提供（统一风格、避免重复返回按钮）。
- * 刷新按钮放在右下角 FAB。带登录加载态。
+ * WebView 加载 WAP 入口(MAIL_URL)，已注入 SSO/.buaa/it 各域会话 cookie，
+ * 由 WebView 自己走 CAS 认证链（SSO 已登录则自动放行）最终落到 Coremail 收件箱。
+ *
+ * 不包含自身 Scaffold/顶栏——顶栏由 MainAppScreen 的全局 AppTopBar 提供。
+ * 刷新按钮在右下角 FAB。带登录加载态。
  *
  * @param domainCookies 按 cookie 真实域名分组的注入数据（List of <注入URL, "name=value;...">）。
- * @param mailUrl WebView 加载的收件箱 URL（含 sid 参数）。
  * @param onRefresh 点击刷新后由上层重新触发 ensureSession 并更新 cookie
  */
 @Composable
 fun MailScreen(
     domainCookies: List<Pair<String, String>>,
-    mailUrl: String,
     loading: Boolean,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   var reloadKey by remember { mutableStateOf(0) }
-  // Coremail 会话就绪 = 注入了 mail.buaa.edu.cn 域的 cookie（含 Coremail.sid）。
-  // 仅当拿到 Coremail 会话 cookie 才加载收件箱，避免只有 SSO cookie 时 WebView 跳到登录页。
-  val mailReady = domainCookies.any { it.first.startsWith("https://mail.buaa.edu.cn") }
+  // SSO 会话就绪 = 有任一 buaa 相关域的会话 cookie 可注入；有则让 WebView 走完整认证链。
+  val ready = domainCookies.isNotEmpty()
   Box(modifier = modifier.fillMaxSize()) {
-    if (mailReady) {
-      // cookie 就绪后用 WebView 展示邮箱；刷新时通过 reloadKey 重建 WebView 重载
+    if (ready) {
+      // 用 reloadKey 区分 WebView 实例，刷新时重建重载
       key(reloadKey) {
         InAppWebView(
-            url = mailUrl,
+            url = MAIL_URL,
             modifier = Modifier.fillMaxSize(),
             domainCookies = domainCookies.filter { it.second.isNotBlank() },
         )
@@ -66,7 +66,7 @@ fun MailScreen(
     }
 
     // 右下角刷新浮层按钮
-    if (mailReady) {
+    if (ready) {
       FloatingActionButton(
           onClick = {
             reloadKey++
