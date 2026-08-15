@@ -81,8 +81,10 @@ fun App() {
 
     suspend fun bootstrapForMode(mode: ConnectionMode) {
       selectedConnectionMode = mode
-      checkStartupPrompts()
+      // 先恢复登录态（决定能否直接进入主界面）。更新/公告检查是网络请求，
+      // 放后台异步执行，不阻塞 splash 结束、不拖延进入主界面。
       authViewModel.initializeApp()
+      appScope.launch { checkStartupPrompts() }
     }
 
     LaunchedEffect(Unit) {
