@@ -1,5 +1,5 @@
 # UBAA Android APK CI/CD
-# Builds debug APK from the ubaa/ subdirectory (KMP project)
+# Builds release APK from the ubaa/ subdirectory (KMP project), signed via GitHub Secrets.
 
 name: Build UBAA Android APK
 
@@ -14,6 +14,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+      SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,13 +37,34 @@ jobs:
         run: chmod +x gradlew
         working-directory: ubaa
 
-      - name: Build Debug APK
-        run: ./gradlew :androidApp:assembleDebug --stacktrace --no-daemon
+      - name: Recreate signing keystore from secret
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.SIGNING_KEY }}" ]; then
+            echo "::error::SIGNING_KEY secret 未配置，无法签名 release。请在仓库 Secrets 添加 SIGNING_KEY(基64的 keystore)。"
+            exit 1
+          fi
+          mkdir -p keystore
+          # 去除 secret 中可能含有的换行，再 base64 解码
+          echo "${{ secrets.SIGNING_KEY }}" | tr -d '\n' | base64 -d > keystore/release.p12
+          echo "SIGNING_KEY=$GITHUB_WORKSPACE/ubaa/keystore/release.p12" >> $GITHUB_ENV
         working-directory: ubaa
 
-      - name: Upload Debug APK
+      - name: Build Release APK
+        run: ./gradlew :androidApp:assembleRelease --stacktrace --no-daemon
+        working-directory: ubaa
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubaa-release
+          path: ubaa/androidApp/build/outputs/apk/release/*.apk
+          retention-days: 14
+
+      - name: Upload Debug APK (fallback, unsigned)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ubaa-debug
           path: ubaa/androidApp/build/outputs/apk/debug/*.apk
-          retention-days: 14
+          retention-days: 7

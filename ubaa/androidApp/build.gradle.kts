@@ -39,6 +39,7 @@ android {
       keyPassword =
           localProperties.getProperty("SIGNING_KEY_PASSWORD")
               ?: System.getenv("SIGNING_KEY_PASSWORD")
+      storeType = "PKCS12"
     }
   }
 
