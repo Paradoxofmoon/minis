@@ -38,6 +38,13 @@ data class CoremailBoxResponse(
     @SerialName("returnTotal") val total: Long = 0,
 )
 
+/** listMessages 返回的分页结果。 */
+data class CoremailPage(
+    val items: List<CoremailMessage> = emptyList(),
+    val total: Long = 0,
+    val hasMore: Boolean = false,
+)
+
 /**
  * 北航 Coremail 邮箱数据仓库（新增独立文件，只读复用 shared client 与 cookie 存储）。
  *
@@ -93,7 +100,7 @@ object MailRepository {
    * @param start 起始偏移(分页)。
    * @param limit 每页条数。
    */
-  suspend fun listMessages(start: Int = 0, limit: Int = 20, fid: Int = 1): Result<List<CoremailMessage>> {
+  suspend fun listMessages(start: Int = 0, limit: Int = 20, fid: Int = 1): Result<CoremailPage> {
     return ensureSession().fold(
         onSuccess = { sid ->
           val url = "$JSON_BASE?sid=$sid&func=mbox%3AlistMessages"
@@ -117,7 +124,8 @@ object MailRepository {
             } else {
               val parsed = json.decodeFromString<CoremailBoxResponse>(text)
               if (parsed.code == "S_OK") {
-                Result.success(parsed.items)
+                val hasMore = start + parsed.items.size < parsed.total
+                Result.success(CoremailPage(parsed.items, parsed.total, hasMore))
               } else {
                 Result.failure(ApiCallException("Coremail 返回错误: ${parsed.desc ?: parsed.code}", resp.status, "mail_error"))
               }

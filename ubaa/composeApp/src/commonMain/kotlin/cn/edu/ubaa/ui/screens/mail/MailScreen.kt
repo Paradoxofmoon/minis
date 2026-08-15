@@ -24,15 +24,21 @@ import cn.edu.ubaa.api.local.MailRepository
  *
  * @param messages 邮件列表。
  * @param loading 加载中。
+ * @param isLoadingMore 是否正在加载下一页。
+ * @param hasMore 是否还有更多邮件未加载。
  * @param error 错误信息（非空时展示）。
  * @param onRefresh 点击刷新触发上层重新拉取。
+ * @param onLoadMore 滚动到底/点击"加载更多"触发。
  */
 @Composable
 fun MailScreen(
     messages: List<CoremailMessage>,
     loading: Boolean,
+    isLoadingMore: Boolean,
+    hasMore: Boolean,
     error: String?,
     onRefresh: () -> Unit,
+    onLoadMore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   var selected by remember { mutableStateOf<CoremailMessage?>(null) }
@@ -71,6 +77,25 @@ fun MailScreen(
         items(messages, key = { it.id }) { msg ->
           MailListItem(msg, onClick = { selected = msg })
           HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        }
+        // 底部：加载更多 / 没有更多了
+        item(key = "__footer") {
+          Box(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+            when {
+              isLoadingMore -> {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text("加载中...", style = MaterialTheme.typography.bodySmall)
+              }
+              hasMore -> {
+                TextButton(onClick = onLoadMore) { Text("加载更多") }
+              }
+              else -> {
+                Text("已显示全部邮件", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+              }
+            }
+          }
         }
       }
     }

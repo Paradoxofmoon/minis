@@ -1052,8 +1052,11 @@ fun MainAppScreen(
                 MailScreen(
                     messages = mailUiState.messages,
                     loading = mailUiState.isLoading,
+                    isLoadingMore = mailUiState.isLoadingMore,
+                    hasMore = mailUiState.hasMore,
                     error = mailUiState.error,
                     onRefresh = { it.refresh() },
+                    onLoadMore = { it.loadMore() },
                 )
               }
           AppScreen.YGDK_HOME ->
