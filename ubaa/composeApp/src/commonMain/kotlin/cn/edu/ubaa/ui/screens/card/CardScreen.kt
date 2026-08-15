@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.background
-import cn.edu.ubaa.api.feature.CardPayWay
 import cn.edu.ubaa.api.local.buildCcpayCookieHeader
 import cn.edu.ubaa.ui.component.InAppWebView
 
@@ -35,9 +34,8 @@ fun CardScreen(
     uiState: CardUiState,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
-    onLoadPayWays: () -> Unit,
     onAmountChange: (String) -> Unit,
-    onBeginRecharge: (String) -> Unit,
+    onBeginRecharge: () -> Unit,
     onOpenPay: (String) -> Unit,
     onClearPayUrl: () -> Unit,
     onClearCashier: () -> Unit,
@@ -95,7 +93,7 @@ fun CardScreen(
 
           item { Spacer(modifier = Modifier.height(8.dp)) }
 
-          item { RechargeSection(uiState, onLoadPayWays, onAmountChange, onBeginRecharge) }
+          item { RechargeSection(uiState, onAmountChange, onBeginRecharge) }
         }
       }
 
@@ -156,12 +154,9 @@ fun CardScreen(
 @Composable
 private fun RechargeSection(
     uiState: CardUiState,
-    onLoadPayWays: () -> Unit,
     onAmountChange: (String) -> Unit,
-    onBeginRecharge: (String) -> Unit,
+    onBeginRecharge: () -> Unit,
 ) {
-  var selectedPayWay by remember { mutableStateOf<String?>(null) }
-
   Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(20.dp),
@@ -185,32 +180,12 @@ private fun RechargeSection(
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-      // 支付方式
-      if (uiState.isLoadingPayWays) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-          Text("加载支付方式...", style = MaterialTheme.typography.bodySmall)
-        }
-      } else if (uiState.payWays.isEmpty()) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          Text("选择支付方式", style = MaterialTheme.typography.bodySmall)
-          TextButton(onClick = onLoadPayWays) { Text("加载") }
-        }
-      } else {
-        Text("选择支付方式", style = MaterialTheme.typography.titleSmall)
-        FlowRowForPayWays(
-            payWays = uiState.payWays,
-            selectedPayWay = selectedPayWay,
-            onSelect = { selectedPayWay = it },
-        )
-      }
+      Text("支付方式将在收银台页面中选择", style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant)
 
       Button(
-          onClick = {
-            val way = selectedPayWay ?: return@Button
-            onBeginRecharge(way)
-          },
-          enabled = uiState.amount.isNotBlank() && selectedPayWay != null && !uiState.isRecharging,
+          onClick = onBeginRecharge,
+          enabled = uiState.amount.isNotBlank() && !uiState.isRecharging,
           modifier = Modifier.fillMaxWidth().height(48.dp),
       ) {
         if (uiState.isRecharging) {
@@ -219,26 +194,6 @@ private fun RechargeSection(
           Text("确认充值")
         }
       }
-    }
-  }
-}
-
-@Composable
-private fun FlowRowForPayWays(
-    payWays: List<CardPayWay>,
-    selectedPayWay: String?,
-    onSelect: (String) -> Unit,
-) {
-  Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
-  ) {
-    payWays.forEach { way ->
-      FilterChip(
-          selected = way.id == selectedPayWay,
-          onClick = { onSelect(way.id) },
-          label = { Text(way.text) },
-      )
     }
   }
 }

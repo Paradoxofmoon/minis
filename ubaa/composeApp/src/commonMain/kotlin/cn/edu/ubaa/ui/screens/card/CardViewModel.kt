@@ -3,7 +3,6 @@ package cn.edu.ubaa.ui.screens.card
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.ubaa.api.feature.CardApi
-import cn.edu.ubaa.api.feature.CardPayWay
 import cn.edu.ubaa.api.feature.CardRechargeResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,8 +17,6 @@ data class CardUiState(
     val error: String? = null,
     // ---- 充值状态 ----
     val amount: String = "",
-    val payWays: List<CardPayWay> = emptyList(),
-    val isLoadingPayWays: Boolean = false,
     val isRecharging: Boolean = false,
     val payUrl: String? = null,
     val cashierUrl: String? = null,
@@ -86,29 +83,12 @@ class CardViewModel(
 
   // ===== 充值 =====
 
-  /** 加载充值可用的支付方式。 */
-  fun loadPayWays() {
-    if (_state.value.isLoadingPayWays) return
-    _state.value = _state.value.copy(isLoadingPayWays = true, error = null)
-    viewModelScope.launch {
-      cardApi
-          .getRechargePayWays()
-          .onSuccess { ways ->
-            _state.value = _state.value.copy(isLoadingPayWays = false, payWays = ways)
-          }
-          .onFailure { error ->
-            _state.value =
-                _state.value.copy(isLoadingPayWays = false, error = error.message ?: "加载支付方式失败")
-          }
-    }
-  }
-
   fun onAmountChange(value: String) {
     _state.value = _state.value.copy(amount = value)
   }
 
-  /** 发起充值：创建订单并发起支付，返回支付跳转地址。 */
-  fun beginRecharge(payWayId: String) {
+  /** 发起充值：创建订单，跳转收银台网页（支付方式在网页里选择）。 */
+  fun beginRecharge() {
     val amount = _state.value.amount
     if (amount.isBlank()) {
       _state.value = _state.value.copy(error = "请输入充值金额")
@@ -121,15 +101,16 @@ class CardViewModel(
     }
     _state.value = _state.value.copy(isRecharging = true, error = null)
     viewModelScope.launch {
+      // payWayId 在收银台网页里选择，此处固定传空串（LocalCardApi 直接返 cashierUrl 不发起支付）
       cardApi
-          .beginRecharge(amount, payWayId)
+          .beginRecharge(amount, "")
           .onSuccess { result ->
             val cashier = result.cashierUrl?.takeIf { it.isNotBlank() }
             val directPay = resolvePayTarget(result)
             _state.value =
                 _state.value.copy(
                     isRecharging = false,
-                    // 方案A：优先加载收银台网页(WebView 内点微信支付唤起)；否则退回直接 scheme
+                    // 方案A：加载收银台网页(WebView 内选支付方式并唤起)；否则退回直接 scheme
                     cashierUrl = cashier,
                     payUrl = if (cashier != null) null else directPay,
                     error =
