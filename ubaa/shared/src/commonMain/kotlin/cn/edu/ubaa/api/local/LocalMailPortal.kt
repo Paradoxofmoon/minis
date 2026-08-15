@@ -4,7 +4,7 @@ import cn.edu.ubaa.api.ConnectionMode
 import cn.edu.ubaa.api.ConnectionRuntime
 import cn.edu.ubaa.api.auth.ApiCallException
 import cn.edu.ubaa.api.network.platformLog
-import io.ktor.client.request.get
+import io.ktor.client.request.*
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
