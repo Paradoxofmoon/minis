@@ -61,6 +61,7 @@ kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_21) } }
 dependencies {
   implementation(projects.composeApp)
   implementation(libs.androidx.activity.compose)
+  implementation(libs.androidx.work.runtime)
   implementation(compose.preview)
   debugImplementation(compose.uiTooling)
 }

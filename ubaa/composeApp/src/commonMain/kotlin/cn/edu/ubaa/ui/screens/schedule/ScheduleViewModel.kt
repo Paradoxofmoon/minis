@@ -3,6 +3,7 @@ package cn.edu.ubaa.ui.screens.schedule
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.edu.ubaa.api.feature.ScheduleApi
+import cn.edu.ubaa.api.storage.ScheduleSnapshotStore
 import cn.edu.ubaa.model.dto.*
 import cn.edu.ubaa.repository.GlobalTermRepository
 import cn.edu.ubaa.repository.TermRepository
@@ -66,6 +67,15 @@ class ScheduleViewModel(
           .onSuccess {
             _todayScheduleState.value =
                 _todayScheduleState.value.copy(isLoading = false, todayClasses = it)
+            // 落盘今日课表快照，供桌面小组件离线读取
+            runCatching {
+              val today =
+                  kotlin.time.Clock.System.now()
+                      .toLocalDateTime(kotlin.time.TimeZone.currentSystemDefault())
+                      .date
+                      .toString()
+              ScheduleSnapshotStore.save(today, it)
+            }
           }
           .onFailure {
             _todayScheduleState.value =

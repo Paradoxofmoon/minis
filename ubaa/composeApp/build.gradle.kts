@@ -78,7 +78,7 @@ kotlin {
       implementation(libs.ktor.client.core)
       implementation(libs.ktor.client.content.negotiation)
       implementation(libs.ktor.client.logging)
-      implementation(projects.shared)
+      api(projects.shared)
       implementation("org.jetbrains.kotlin:kotlin-metadata-jvm")
     }
 
