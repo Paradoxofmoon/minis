@@ -1,9 +1,7 @@
 package cn.edu.ubaa.ui.screens.mail
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,52 +14,65 @@ import cn.edu.ubaa.ui.component.InAppWebView
 internal const val MAIL_URL = "https://it.buaa.edu.cn/frontend/mail/login"
 
 /**
- * 北航邮箱页：全屏 WebView 展示，复用 CAS 会话 cookie。带返回与刷新。
+ * 北航邮箱页：全屏 WebView 展示，复用 CAS 会话 cookie。
+ *
+ * 不包含自身 Scaffold/顶栏——顶栏由 MainAppScreen 的全局 AppTopBar 提供（统一风格、避免重复返回按钮）。
+ * 刷新按钮放在右上角浮层。带登录加载态。
+ *
  * @param mailCookie 由上层(MailViewModel)触发 CAS 登录后提取的 cookie
+ * @param onRefresh 点击刷新后由上层重新触发 ensureSession 并更新 cookie
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MailScreen(
     mailCookie: String,
-    onBack: () -> Unit,
+    loading: Boolean,
+    onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   var reloadKey by remember { mutableStateOf(0) }
-  Scaffold(
-      modifier = modifier.fillMaxSize(),
-      topBar = {
-        TopAppBar(
-            title = { Text("北航邮箱") },
-            navigationIcon = {
-              IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") }
-            },
-            actions = {
-              IconButton(onClick = { reloadKey++ }) {
-                Icon(Icons.Default.Refresh, contentDescription = "刷新")
-              }
-            },
-        )
-      },
-  ) { padding ->
-    Box(Modifier.fillMaxSize().padding(padding)) {
+  Box(modifier = modifier.fillMaxSize()) {
+    if (mailCookie.isNotBlank()) {
       // cookie 就绪后用 WebView 展示邮箱；刷新时通过 reloadKey 重建 WebView 重载
-      if (mailCookie.isNotBlank()) {
-        key(reloadKey) {
-          InAppWebView(
-              url = MAIL_URL,
-              modifier = Modifier.fillMaxSize(),
-              cookies = mailCookie.split("; ").filter { it.trim().isNotEmpty() },
-          )
+      key(reloadKey) {
+        InAppWebView(
+            url = MAIL_URL,
+            modifier = Modifier.fillMaxSize(),
+            cookies = mailCookie.split("; ").filter { it.trim().isNotEmpty() },
+        )
+      }
+    } else if (loading) {
+      // 登录中
+      Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+          CircularProgressIndicator()
+          Spacer(Modifier.height(12.dp))
+          Text("正在登录邮箱...", style = MaterialTheme.typography.bodyMedium)
         }
-      } else {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-          Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator()
-            Spacer(Modifier.height(12.dp))
-            Text("正在登录邮箱...", style = MaterialTheme.typography.bodyMedium)
-          }
+      }
+    } else {
+      // cookie 空且未在加载：示意用户下拉/点刷新重试
+      Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+          Text("邮箱登录未完成", style = MaterialTheme.typography.titleMedium)
+          Spacer(Modifier.height(8.dp))
+          Text("请稍后点击右上角刷新重试", style = MaterialTheme.typography.bodyMedium)
         }
+      }
+    }
+
+    // 右上角刷新浮层按钮
+    if (mailCookie.isNotBlank()) {
+      FloatingActionButton(
+          onClick = {
+            reloadKey++
+            onRefresh()
+          },
+          modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+          containerColor = MaterialTheme.colorScheme.secondaryContainer,
+      ) {
+        Icon(Icons.Default.Refresh, contentDescription = "刷新")
       }
     }
   }
 }
+

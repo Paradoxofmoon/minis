@@ -1051,7 +1051,8 @@ fun MainAppScreen(
               mailViewModel?.let {
                 MailScreen(
                     mailCookie = mailUiState.cookie,
-                    onBack = { navigateTo(AppScreen.ADVANCED) },
+                    loading = mailUiState.isLoading,
+                    onRefresh = { it.ensureLoaded(force = true) },
                 )
               }
           AppScreen.YGDK_HOME ->
