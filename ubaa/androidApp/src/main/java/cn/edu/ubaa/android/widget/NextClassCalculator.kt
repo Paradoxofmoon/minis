@@ -15,7 +15,7 @@ data class ClassView(
 )
 
 /** 简化时间表示：HH:mm 转自当天零点起的分钟数。 */
-private data class TimeOfDay(val hour: Int, val minute: Int) {
+internal data class TimeOfDay(val hour: Int, val minute: Int) {
   val minutes: Int get() = hour * 60 + minute
 
   fun toLabel(): String {
