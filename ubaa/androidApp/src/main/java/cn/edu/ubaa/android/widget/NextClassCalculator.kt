@@ -1,6 +1,9 @@
 package cn.edu.ubaa.android.widget
 
 import cn.edu.ubaa.model.dto.TodayClass
+import kotlin.time.Clock
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 
 /** 一节课的视图模型：名称、地点、时间范围、距开始剩余分钟。 */
 data class ClassView(
@@ -52,9 +55,7 @@ object NextClassCalculator {
 
   /** 当前时间(今天)的小时与分钟。 */
   private fun nowTimeOfDay(): TimeOfDay {
-    val now =
-        kotlin.time.Clock.System.now()
-            .toLocalDateTime(kotlinx.datetime.TimeZone.currentSystemDefault())
+    val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
     return TimeOfDay(now.hour, now.minute)
   }
 
@@ -86,8 +87,5 @@ object NextClassCalculator {
 
   /** 今日日期(yyyy-MM-dd)，用于判断快照是否属于今天。 */
   fun todayString(): String =
-      kotlin.time.Clock.System.now()
-          .toLocalDateTime(kotlinx.datetime.TimeZone.currentSystemDefault())
-          .date
-          .toString()
+      Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date.toString()
 }

@@ -7,10 +7,13 @@ import cn.edu.ubaa.api.storage.ScheduleSnapshotStore
 import cn.edu.ubaa.model.dto.*
 import cn.edu.ubaa.repository.GlobalTermRepository
 import cn.edu.ubaa.repository.TermRepository
+import kotlin.time.Clock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 
 /** 课程表相关业务逻辑的 ViewModel。 负责拉取学期列表、周次列表、周课表详情以及今日课表摘要。 */
 class ScheduleViewModel(
@@ -70,8 +73,8 @@ class ScheduleViewModel(
             // 落盘今日课表快照，供桌面小组件离线读取
             runCatching {
               val today =
-                  kotlin.time.Clock.System.now()
-                      .toLocalDateTime(kotlinx.datetime.TimeZone.currentSystemDefault())
+                  Clock.System.now()
+                      .toLocalDateTime(TimeZone.currentSystemDefault())
                       .date
                       .toString()
               ScheduleSnapshotStore.save(today, it)
