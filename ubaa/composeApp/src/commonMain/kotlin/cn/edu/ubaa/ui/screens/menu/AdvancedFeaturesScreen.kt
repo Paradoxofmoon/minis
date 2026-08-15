@@ -17,7 +17,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AssignmentTurnedIn
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.AssignmentTurnedIn
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Card
@@ -61,6 +61,12 @@ internal fun advancedFeatureItems(): List<AdvancedFeatureItem> =
             icon = Icons.Default.AssignmentTurnedIn,
         ),
         AdvancedFeatureItem(
+            id = "mail",
+            title = "北航邮箱",
+            description = "查看校邮箱收件箱与写信",
+            icon = Icons.Default.Email,
+        ),
+        AdvancedFeatureItem(
             id = "more",
             title = "更多功能",
             description = "更多高级功能正在开发中...",
@@ -73,6 +79,7 @@ fun AdvancedFeaturesScreen(
     onCgyyClick: () -> Unit,
     onEvaluationClick: () -> Unit,
     onYgdkClick: () -> Unit,
+    onMailClick: () -> Unit,
     gridState: LazyGridState,
     modifier: Modifier = Modifier,
 ) {
@@ -93,6 +100,7 @@ fun AdvancedFeaturesScreen(
                 "cgyy" -> onCgyyClick()
                 "ygdk" -> onYgdkClick()
                 "evaluation" -> onEvaluationClick()
+                "mail" -> onMailClick()
               }
             },
         )
