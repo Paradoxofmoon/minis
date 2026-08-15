@@ -51,7 +51,7 @@ actual fun InAppWebView(
                       override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
                         val msg = "${message.message()} (${message.lineNumber()})"
                         if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR ||
-                            msg.contains("error") || msg.contains("Error") || msg.contains("undefined")) {
+                            msg.contains("PAYDEBUG") || msg.contains("error") || msg.contains("Error") || msg.contains("undefined")) {
                           onPageError?.invoke(msg.take(300))
                         }
                         return super.onConsoleMessage(message)

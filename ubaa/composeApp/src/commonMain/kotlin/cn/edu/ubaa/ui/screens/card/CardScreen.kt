@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.edu.ubaa.api.feature.CardPayWay
+import cn.edu.ubaa.api.local.buildCcpayCookieHeader
 import cn.edu.ubaa.ui.component.InAppWebView
 
 @OptIn(ExperimentalMaterialApi::class)
@@ -37,18 +38,21 @@ fun CardScreen(
     onLoadPayWays: () -> Unit,
     onAmountChange: (String) -> Unit,
     onBeginRecharge: (String) -> Unit,
-    onClearPayScheme: () -> Unit,
+    onClearPendingPay: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-  val payScheme = uiState.payScheme
-  // 用户点"确认支付"后拿到支付 scheme(weixin:// / alipays://)，
-  // 用一个不可见的 WebView 加载一段 HTML，由浏览器内核触发 location.href 跳 scheme，
-  // 从而按"浏览器来源"可靠唤起支付 App（App 直接 Intent 唤起微信不可靠）。
-  if (payScheme != null) {
+  val cashierUrl = uiState.pendingCashierUrl
+  val channel = uiState.pendingChannel
+  var payStatus by remember(cashierUrl) { mutableStateOf<String?>(if (cashierUrl != null) "正在拉起支付..." else null) }
+  // 用户点"确认支付"后，用不可见 WebView 加载真实收银台页(cashier.cc-pay.cn)，
+  // 并注入 JS 自动点击用户选定的支付方式(微信/支付宝)，由收银台页 JS 触发 scheme 唤起支付 App。
+  if (cashierUrl != null) {
     SchemeTriggerWebView(
-        scheme = payScheme,
+        cashierUrl = cashierUrl,
+        channel = channel ?: "wx",
         modifier = Modifier.size(1.dp),
-        onConsumed = onClearPayScheme,
+        onDiagnose = { msg -> payStatus = msg },
+        onConsumed = onClearPendingPay,
     )
   }
 
@@ -123,34 +127,108 @@ fun CardScreen(
         state = pullRefreshState,
         modifier = Modifier.align(Alignment.TopCenter),
     )
+
+    // 支付唤起状态/诊断提示
+    payStatus?.let { status ->
+      Card(
+          modifier = Modifier
+              .align(Alignment.TopCenter)
+              .fillMaxWidth()
+              .padding(top = if (uiState.isRefreshing) 64.dp else 16.dp, start = 12.dp, end = 12.dp),
+          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+      ) {
+        Text(
+            text = status,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+      }
+    }
   }
 }
 
-/** 用不可见 WebView 的浏览器环境触发自定义支付 scheme 唤起支付 App。 */
+/** 用不可见 WebView 加载真实收银台页并注入 JS 自动点击支付方式，唤起支付 App。 */
 @Composable
 private fun SchemeTriggerWebView(
-    scheme: String,
+    cashierUrl: String,
+    channel: String,
     modifier: Modifier,
+    onDiagnose: (String) -> Unit,
     onConsumed: () -> Unit,
 ) {
-  val html =
-      "<!DOCTYPE html><html><body style='margin:0;background:#fff' " +
-          "onload=\"window.location.href='${htmlEscape(scheme)}'\"></body></html>"
+  val js = buildAutoClickScript(channel)
   InAppWebView(
-      url = "https://cashier.cc-pay.cn/cashier",
+      url = cashierUrl,
       modifier = modifier,
-      htmlContent = html,
+      cookies = buildCcpayCookieHeader().split("; ").filter { it.trim().isNotEmpty() },
+      injectJsOnLoad = js,
+      onPageError = { msg ->
+        if (msg.contains("PAYDEBUG")) {
+          onDiagnose(msg.take(120))
+        }
+      },
   )
-  LaunchedEffect(scheme) {
-    // 待 WebView 触发 scheme 后，短暂延迟清理触发态，避免重复
-    kotlinx.coroutines.delay(1500)
+  LaunchedEffect(cashierUrl) {
+    kotlinx.coroutines.delay(4500)
     onConsumed()
   }
 }
 
-/** 将字符串转义为可安全放入 HTML 属性(单引号字符串)的形式。 */
-private fun htmlEscape(s: String): String =
-    s.replace("&", "&amp;").replace("'", "&#39;").replace("\"", "&quot;")
+/** 构造注入 JS：轮询等待 Angular 挂载后自动点击目标支付方式。channel: wx / ali。 */
+private fun buildAutoClickScript(channel: String): String {
+  val target =
+      if (channel == "ali") "支付宝" else "微信"
+  val classKw = if (channel == "ali") "ali" else "wx,weixin"
+  return """
+    (function(){
+      var target='$target';
+      var classKw='$classKw';
+      function isTarget(e){
+        try{
+          if(!e) return false;
+          var t=(e.textContent||'').trim();
+          var c=(e.className&&e.className.toString) ? e.className.toString() : '';
+          var lowT=t.toLowerCase(), lowC=c.toLowerCase();
+          if(lowT.indexOf(target.toLowerCase())>=0) return true;
+          var parts=classKw.split(',');
+          for(var i=0;i<parts.length;i++){ if(lowC.indexOf(parts[i])>=0) return true; }
+        }catch(err){}
+        return false;
+      }
+      function clickAll(){
+        var els=[];
+        document.querySelectorAll('li,div,span,button,a,[class]').forEach(function(e){
+          if(isTarget(e)) els.push(e);
+        });
+        if(els.length>0){
+          els.slice(0,5).forEach(function(e){
+            try{
+              e.click();
+              ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(type){
+                try{ e.dispatchEvent(new MouseEvent(type,{bubbles:true,cancelable:true,view:window})); }catch(err){}
+              });
+            }catch(err){}
+          });
+          console.error('PAYDEBUG auto-clicked '+els.length+' for '+target);
+          return true;
+        }
+        return false;
+      }
+      var tries=0;
+      var timer=setInterval(function(){
+        tries++;
+        var done=clickAll();
+        if(done){ clearInterval(timer); }
+        else if(tries>=12){ clearInterval(timer); alert('PAYDEBUG 未能自动定位支付方式'); }
+      }, 600);
+      setTimeout(function(){ clearInterval(timer); }, 10000);
+    })();
+  """.trimIndent()
+}
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

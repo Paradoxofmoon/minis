@@ -112,11 +112,9 @@ internal class LocalCardApiBackend : CardApiBackend {
       val (transactionId, cashierUrl) = createTransaction(amount, itemId, stuNo, realName)
       platformLog("CR", "交易创建完成: $transactionId  cashierUrl=$cashierUrl")
 
-      // 方案一：经由我们 App 自制的支付界面，用户已选定 payWayId（微信/支付宝）。
-      // 直接调 initiatePay 拿 weixin:// / alipays:// scheme，用隐藏 WebView 唤起支付 App。
-      val payResult = initiatePay(transactionId, payWayId)
-      platformLog("CR", "发起支付完成: payUrl=${payResult.payUrl} qrcode=${payResult.payQrCode}")
-      Result.success(payResult)
+      // 返回收银台地址，用隐藏 WebView 加载真实收银台页并注入 JS 自动点支付方式唤起支付 App。
+      // 不在 API 层调 initiatePay（避免把支付方式锁定在订单上）。
+      Result.success(CardRechargeResult(cashierUrl = cashierUrl.ifBlank { null }))
     } catch (e: ApiCallException) {
       platformLog("CR", "充值失败(ApiCall): ${e.message} :: ${e.status}")
       Result.failure(ApiCallException("充值失败: ${e.message}", e.status ?: HttpStatusCode.BadGateway, "card_error"))

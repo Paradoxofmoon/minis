@@ -21,7 +21,9 @@ data class CardUiState(
     val payWays: List<CardPayWay> = emptyList(),
     val isLoadingPayWays: Boolean = false,
     val isRecharging: Boolean = false,
-    val payScheme: String? = null,
+    // 待用的真实收银台地址 + 用户选定的支付渠道(用于注入脚本自动点支付)
+    val pendingCashierUrl: String? = null,
+    val pendingChannel: String? = null,
 )
 
 /** 校园卡余额查询 + 充值 ViewModel。 */
@@ -111,7 +113,7 @@ class CardViewModel(
     _state.value = _state.value.copy(amount = value)
   }
 
-  /** 发起充值：下单并取得支付 scheme(weixin:// 或 alipays://)，交隐藏 WebView 唤起支付 App。 */
+  /** 发起充值：下单拿到收银台地址，交隐藏 WebView 加载真实收银台页并自动点支付唤起。 */
   fun beginRecharge(payWayId: String) {
     val amount = _state.value.amount
     if (amount.isBlank()) {
@@ -123,19 +125,18 @@ class CardViewModel(
       _state.value = _state.value.copy(error = "充值金额需在 1~90000 元之间")
       return
     }
-    _state.value = _state.value.copy(isRecharging = true, error = null, payScheme = null)
+    _state.value = _state.value.copy(isRecharging = true, error = null, pendingCashierUrl = null, pendingChannel = null)
     viewModelScope.launch {
       cardApi
           .beginRecharge(amount, payWayId)
           .onSuccess { result ->
-            val scheme =
-                result.payQrCode?.takeIf { it.isNotBlank() }
-                    ?: result.payUrl?.takeIf { it.isNotBlank() }
+            val cashierUrl = result.cashierUrl?.takeIf { it.isNotBlank() }
             _state.value =
                 _state.value.copy(
                     isRecharging = false,
-                    payScheme = scheme,
-                    error = if (scheme.isNullOrBlank()) "未获取到支付地址" else null,
+                    pendingCashierUrl = cashierUrl,
+                    pendingChannel = channelOf(payWayId),
+                    error = if (cashierUrl.isNullOrBlank()) "未获取到收银台地址" else null,
                 )
           }
           .onFailure { error ->
@@ -145,10 +146,18 @@ class CardViewModel(
     }
   }
 
-  /** 支付 scheme 已处理完成后清理。 */
-  fun clearPayScheme() {
-    _state.value = _state.value.copy(payScheme = null)
+  /** 支付已处理完成后清理。 */
+  fun clearPendingPay() {
+    _state.value = _state.value.copy(pendingCashierUrl = null, pendingChannel = null)
   }
+
+  /** 依据 payWayId 推断支付渠道（微信=5acada61..., 支付宝=5acada60..., 数字人民币=ecpay...）。 */
+  private fun channelOf(payWayId: String): String =
+      when {
+        payWayId.startsWith("5acada61") || payWayId.contains("wx") || payWayId.contains("weixin") -> "wx"
+        payWayId.startsWith("5acada60") || payWayId.contains("ali") -> "ali"
+        else -> "wx"
+      }
 
   /** 清空错误提示。 */
   fun clearError() {

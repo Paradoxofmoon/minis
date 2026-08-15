@@ -1151,7 +1151,7 @@ fun MainAppScreen(
                     onLoadPayWays = { viewModel.loadPayWays() },
                     onAmountChange = viewModel::onAmountChange,
                     onBeginRecharge = viewModel::beginRecharge,
-                    onClearPayScheme = { viewModel.clearPayScheme() },
+                    onClearPendingPay = { viewModel.clearPendingPay() },
                 )
               }
            AppScreen.NETWORK ->
