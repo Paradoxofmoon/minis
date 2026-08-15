@@ -23,11 +23,9 @@ actual fun InAppWebView(
             WebView(context).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
-                // 使用普通浏览器 UA，避免微信将请求误判为"微信内浏览器"而走 JSAPI 支付，
-                // 导致 H5/扫码支付无法正常调起。
-                settings.userAgentString =
-                    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
-                        "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                // 不覆盖 UA：让收银台页按真实 Android WebView 环境正常渲染（避免支付方式图标/文字空白）。
+                // 微信支付唤起依赖网页 JS location.href 触发 weixin://，与 UA 无关。
 
                 if (cookies.isNotEmpty()) {
                   runCatching {
