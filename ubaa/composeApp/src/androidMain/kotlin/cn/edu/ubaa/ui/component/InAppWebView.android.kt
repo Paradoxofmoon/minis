@@ -25,6 +25,11 @@ actual fun InAppWebView(
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                // 关键：允许第三方 Cookie(跨域请求带 cookie)，否则收银台 socket(rmc.cc-pay.cn)
+                // 等跨域请求无会话，被拒为 CORS/network error，导致 Angular 初始化/渲染不完整。
+                runCatching {
+                  android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                }
                 // 不覆盖 UA：让收银台页按真实 Android WebView 环境正常渲染（避免支付方式图标/文字空白）。
                 // 微信支付唤起依赖网页 JS location.href 触发 weixin://，与 UA 无关。
 
@@ -33,6 +38,7 @@ actual fun InAppWebView(
                     val cookieManager = CookieManager.getInstance()
                     if (cookieManager != null) {
                       cookieManager.setAcceptCookie(true)
+                      cookieManager.setAcceptThirdPartyCookies(this, true)
                       cookies.forEach { cookie -> cookieManager.setCookie(url, cookie) }
                       cookieManager.flush()
                     }
