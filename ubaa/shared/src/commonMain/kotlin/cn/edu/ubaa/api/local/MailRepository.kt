@@ -71,16 +71,16 @@ object MailRepository {
   }
 
   /**
-   * 确保持有有效 Coremail.sid：带既有 SSO 会话访问收件箱入口，换取/刷新 sid。
-   * @return 当前有效的 sid；非空表示会话可用。
+   * 确保持有有效 Coremail.sid。优先复用 cookie jar 里已有的 sid（不额外网络访问）；
+   * 仅当 jar 里无 sid 时才访问收件箱入口换取一次。
+   * @return 当前 sid；非空表示会话可用。
    */
-  suspend fun ensureSession(): Result<String> {
+  private suspend fun ensureSession(): Result<String> {
+    val have = currentSid()
+    if (!have.isNullOrBlank()) return Result.success(have)
     return try {
       val client = LocalUpstreamClientProvider.shared()
-      // 访问收件箱入口触发 Coremail 校验，种/刷新 Coremail.sid（即使返回500也可能已种 sid）
-      client.get(localUpstreamUrl(INDEX_URL)) {
-        header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-      }
+      // 仅缺失 sid 时访问一次收件箱入口触发 Coremail 种 sid
       client.get(localUpstreamUrl(INDEX_URL)) {
         header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
       }
@@ -120,16 +120,22 @@ object MailRepository {
               setBody(body)
             }
             val text = resp.bodyAsText()
-            if (resp.status != HttpStatusCode.OK) {
-              Result.failure(ApiCallException("拉取邮件失败: HTTP ${resp.status}", resp.status, "mail_error"))
-            } else {
+            if (resp.status == HttpStatusCode.OK) {
               val parsed = json.decodeFromString<CoremailBoxResponse>(text)
               if (parsed.code == "S_OK") {
                 val hasMore = start + parsed.items.size < parsed.total
                 Result.success(CoremailPage(parsed.items, parsed.total, hasMore))
               } else {
-                Result.failure(ApiCallException("Coremail 返回错误: ${parsed.desc ?: parsed.code}", resp.status, "mail_error"))
+                // 会话失效(S_OK缺失)：清掉 sid 以便下次重新获取
+                invalidateSid()
+                Result.failure(ApiCallException("Coremail 会话失效: ${parsed.desc ?: parsed.code}", resp.status, "mail_error"))
               }
+            } else if (resp.status.value >= 200 && resp.status.value < 300) {
+              // 202 Accepted 等中间态：视为会话需刷新，重试一次
+              invalidateSid()
+              refreshSessionAndRetry(start, limit, fid)
+            } else {
+              Result.failure(ApiCallException("拉取邮件失败: HTTP ${resp.status}", resp.status, "mail_error"))
             }
           } catch (e: Exception) {
             platformLog("MAIL", "listMessages 异常: ${e.message}")
@@ -138,6 +144,55 @@ object MailRepository {
         },
         onFailure = { Result.failure(it) },
     )
+  }
+
+  /** 清掉当前 Coremail.sid，迫使下次重新获取。 */
+  private fun invalidateSid() {
+    val mode = currentMode()
+    val records = LocalCookieStore.load(mode)
+    val filtered = records.filter { it.cookie.name != "Coremail.sid" }
+    if (filtered.size != records.size) LocalCookieStore.save(mode, filtered)
+  }
+
+  /** 清掉旧 sid 后重新走一次会话并在本函数内重试一次。 */
+  private suspend fun refreshSessionAndRetry(start: Int, limit: Int, fid: Int): Result<CoremailPage> {
+    invalidateSid()
+    return try {
+      val client = LocalUpstreamClientProvider.shared()
+      client.get(localUpstreamUrl(INDEX_URL)) {
+        header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+      }
+      val sid = currentSid()
+      if (sid.isNullOrBlank()) {
+        Result.failure(ApiCallException("邮箱会话刷新失败", HttpStatusCode.Unauthorized, "mail_error"))
+      } else {
+        val url = "$JSON_BASE?sid=$sid&func=mbox%3AlistMessages"
+        val referer = "$INDEX_URL?sid=$sid"
+        val body = """{"start":$start,"limit":$limit,"mode":"count","order":"receivedDate","desc":true,"returnTotal":true,"returnTag":false,"summaryWindowSize":$limit,"fid":$fid,"mboxa":"","topFirst":true}"""
+        val resp = client.post(localUpstreamUrl(url)) {
+          header("Accept", "text/x-json")
+          header("Content-Type", "text/x-json; tz=\"Asia/Shanghai\"")
+          header("X-Requested-With", "XMLHttpRequest")
+          header("Referer", referer)
+          header("Origin", "https://mail.buaa.edu.cn")
+          header("User-Agent", DESKTOP_UA)
+          setBody(body)
+        }
+        if (resp.status == HttpStatusCode.OK) {
+          val parsed = json.decodeFromString<CoremailBoxResponse>(resp.bodyAsText())
+          if (parsed.code == "S_OK") {
+            val hasMore = start + parsed.items.size < parsed.total
+            Result.success(CoremailPage(parsed.items, parsed.total, hasMore))
+          } else {
+            Result.failure(ApiCallException("Coremail 会话失效: ${parsed.desc ?: parsed.code}", resp.status, "mail_error"))
+          }
+        } else {
+          Result.failure(ApiCallException("拉取邮件失败(重试): HTTP ${resp.status}", resp.status, "mail_error"))
+        }
+      }
+    } catch (e: Exception) {
+      Result.failure(ApiCallException("邮箱会话刷新异常: ${e.message}", HttpStatusCode.BadGateway, "mail_error"))
+    }
   }
 
   /** 解析 Coremail 发件人字段（"名字" <邮箱> 或 邮箱）→ 展示名。 */
