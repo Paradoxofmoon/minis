@@ -1052,6 +1052,7 @@ fun MainAppScreen(
                 MailScreen(
                     domainCookies = mailUiState.domainCookies,
                     loading = mailUiState.isLoading,
+                    diagnostic = mailUiState.diagnostic,
                     onRefresh = { it.ensureLoaded(force = true) },
                 )
               }

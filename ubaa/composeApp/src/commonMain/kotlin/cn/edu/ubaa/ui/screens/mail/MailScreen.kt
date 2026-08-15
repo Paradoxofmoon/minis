@@ -23,12 +23,14 @@ internal const val MAIL_URL = "https://it.buaa.edu.cn/frontend/mail/login"
  * 刷新按钮在右下角 FAB。带登录加载态。
  *
  * @param domainCookies 按 cookie 真实域名分组的注入数据（List of <注入URL, "name=value;...">）。
+ * @param diagnostic Coremail 会话探测报告（阶段0诊断，显示在页面底部）。
  * @param onRefresh 点击刷新后由上层重新触发 ensureSession 并更新 cookie
  */
 @Composable
 fun MailScreen(
     domainCookies: List<Pair<String, String>>,
     loading: Boolean,
+    diagnostic: String,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -61,6 +63,28 @@ fun MailScreen(
           Text("邮箱登录未完成", style = MaterialTheme.typography.titleMedium)
           Spacer(Modifier.height(8.dp))
           Text("请稍后点击右下角刷新重试", style = MaterialTheme.typography.bodyMedium)
+        }
+      }
+    }
+
+    // 阶段0诊断：Coremail 会话探测报告（临时显示，便于验证 Ktor 能否换到 sid）
+    if (diagnostic.isNotBlank()) {
+      Surface(
+          modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
+          color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
+          tonalElevation = 2.dp,
+          shape = MaterialTheme.shapes.small,
+      ) {
+        Column(
+            modifier = Modifier.padding(8.dp).widthIn(max = 320.dp),
+        ) {
+          Text("诊断(探测)", style = MaterialTheme.typography.labelSmall)
+          Spacer(Modifier.height(4.dp))
+          Text(
+              diagnostic,
+              style = MaterialTheme.typography.bodySmall,
+              maxLines = 40,
+          )
         }
       }
     }
