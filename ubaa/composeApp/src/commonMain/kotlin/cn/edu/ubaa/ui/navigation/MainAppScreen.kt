@@ -58,9 +58,6 @@ import cn.edu.ubaa.ui.screens.evaluation.EvaluationScreen
 import cn.edu.ubaa.ui.screens.evaluation.EvaluationViewModel
 import cn.edu.ubaa.ui.screens.exam.ExamScreen
 import cn.edu.ubaa.ui.screens.exam.ExamUiState
-import cn.edu.ubaa.ui.screens.mail.MailScreen
-import cn.edu.ubaa.ui.screens.mail.MailUiState
-import cn.edu.ubaa.ui.screens.mail.MailViewModel
 import cn.edu.ubaa.ui.screens.exam.ExamViewModel
 import cn.edu.ubaa.ui.screens.grade.GradeScreen
 import cn.edu.ubaa.ui.screens.grade.GradeUiState
@@ -118,7 +115,6 @@ enum class AppScreen {
   CGYY_LOCK_CODE,
   CLASSROOM_QUERY,
   EVALUATION,
-  MAIL,
   SPOC_ASSIGNMENTS,
   SPOC_ASSIGNMENT_DETAIL,
   JUDGE_ASSIGNMENTS,
@@ -261,13 +257,6 @@ fun MainAppScreen(
       } else {
         null
       }
-  val mailViewModel: MailViewModel? =
-      if (currentScreen == AppScreen.MAIL) {
-        viewModel(key = "mail") { MailViewModel() }
-      } else {
-        null
-      }
-  val mailUiState = mailViewModel?.state?.collectAsState()?.value ?: MailUiState()
   val cgyyViewModel: CgyyViewModel? =
       if (shouldKeepCgyyViewModel) {
         viewModel(key = "cgyy-${userData.schoolid}") { CgyyViewModel() }
@@ -482,7 +471,6 @@ fun MainAppScreen(
               AppScreen.CGYY_ORDERS,
               AppScreen.CGYY_LOCK_CODE,
               AppScreen.EVALUATION,
-              AppScreen.MAIL,
               AppScreen.YGDK_HOME,
               AppScreen.YGDK_FORM -> BottomNavTab.ADVANCED
               else -> null
@@ -528,7 +516,6 @@ fun MainAppScreen(
             AppScreen.CGYY_ORDERS,
             AppScreen.CGYY_LOCK_CODE,
             AppScreen.EVALUATION,
-            AppScreen.MAIL,
             AppScreen.YGDK_HOME,
             AppScreen.YGDK_FORM -> BottomNavTab.ADVANCED
             else -> null
@@ -631,7 +618,6 @@ fun MainAppScreen(
     examViewModel?.resetLoadedState()
     gradeViewModel?.resetLoadedState()
     evaluationViewModel?.resetLoadedState()
-    mailViewModel?.resetLoadedState()
     libBookViewModel?.resetLoadedState()
     cardViewModel?.resetLoadedState()
     networkViewModel?.resetLoadedState()
@@ -660,7 +646,6 @@ fun MainAppScreen(
         cgyyViewModel?.ensureOrdersLoaded(forceRefresh = true)
       }
       AppScreen.EVALUATION -> evaluationViewModel?.ensureLoaded(forceRefresh = true)
-      AppScreen.MAIL -> mailViewModel?.ensureLoaded(force = true)
       AppScreen.SPOC_ASSIGNMENTS -> spocViewModel.ensureAssignmentsLoaded(forceRefresh = true)
       AppScreen.JUDGE_ASSIGNMENTS -> judgeViewModel.ensureAssignmentsLoaded(forceRefresh = true)
       AppScreen.LIBBOOK_HOME,
@@ -723,7 +708,6 @@ fun MainAppScreen(
         cgyyViewModel?.ensureLockCodeLoaded(forceRefresh = true)
       }
       AppScreen.EVALUATION -> evaluationViewModel?.ensureLoaded()
-      AppScreen.MAIL -> mailViewModel?.ensureLoaded()
       AppScreen.SPOC_ASSIGNMENTS,
       AppScreen.SPOC_ASSIGNMENT_DETAIL -> spocViewModel.ensureAssignmentsLoaded()
       AppScreen.JUDGE_ASSIGNMENTS,
@@ -775,7 +759,6 @@ fun MainAppScreen(
         AppScreen.CGYY_LOCK_CODE -> "查看密码"
         AppScreen.CLASSROOM_QUERY -> "空教室查询"
         AppScreen.EVALUATION -> "自动评教"
-        AppScreen.MAIL -> "北航邮箱"
         AppScreen.SPOC_ASSIGNMENTS -> "SPOC作业"
         AppScreen.SPOC_ASSIGNMENT_DETAIL -> "作业详情"
         AppScreen.JUDGE_ASSIGNMENTS -> "希冀作业"
@@ -908,7 +891,6 @@ fun MainAppScreen(
                   onCgyyClick = { navigateTo(AppScreen.CGYY_HOME) },
                   onEvaluationClick = { navigateTo(AppScreen.EVALUATION) },
                   onYgdkClick = { navigateTo(AppScreen.YGDK_HOME) },
-                  onMailClick = { navigateTo(AppScreen.MAIL) },
                   gridState = advancedGridState,
               )
           AppScreen.MY -> MyScreen(userInfo = userInfo)
@@ -1047,19 +1029,6 @@ fun MainAppScreen(
           AppScreen.CGYY_ORDERS -> cgyyViewModel?.let { CgyyOrdersScreen(viewModel = it) }
           AppScreen.CGYY_LOCK_CODE -> cgyyViewModel?.let { CgyyLockCodeScreen(viewModel = it) }
           AppScreen.EVALUATION -> evaluationViewModel?.let { EvaluationScreen(viewModel = it) }
-          AppScreen.MAIL ->
-              mailViewModel?.let {
-                MailScreen(
-                    messages = mailUiState.messages,
-                    loading = mailUiState.isLoading,
-                    isLoadingMore = mailUiState.isLoadingMore,
-                    hasMore = mailUiState.hasMore,
-                    error = mailUiState.error,
-                    diagnostic = mailUiState.diagnostic,
-                    onRefresh = { it.refresh() },
-                    onLoadMore = { it.loadMore() },
-                )
-              }
           AppScreen.YGDK_HOME ->
               ygdkViewModel?.let {
                 YgdkHomeScreen(
@@ -1232,7 +1201,6 @@ fun MainAppScreen(
                   AppScreen.CGYY_ORDERS,
                   AppScreen.CGYY_LOCK_CODE,
                   AppScreen.EVALUATION,
-                  AppScreen.MAIL,
                   AppScreen.YGDK_HOME,
                   AppScreen.YGDK_FORM,
                   AppScreen.SPOC_ASSIGNMENTS,
