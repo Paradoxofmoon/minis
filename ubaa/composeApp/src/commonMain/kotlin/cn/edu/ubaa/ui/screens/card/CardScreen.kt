@@ -26,8 +26,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.edu.ubaa.api.feature.CardPayWay
-import cn.edu.ubaa.api.local.buildCcpayCookieHeader
-import cn.edu.ubaa.ui.component.InAppWebView
+import cn.edu.ubaa.ui.component.SchemeTriggerWebView
 
 @OptIn(ExperimentalMaterialApi::class)
 @Composable
@@ -149,86 +148,6 @@ fun CardScreen(
     }
   }
 }
-
-/** 用不可见 WebView 加载真实收银台页并注入 JS 自动点击支付方式，唤起支付 App。 */
-@Composable
-private fun SchemeTriggerWebView(
-    cashierUrl: String,
-    channel: String,
-    modifier: Modifier,
-    onDiagnose: (String) -> Unit,
-    onConsumed: () -> Unit,
-) {
-  val js = buildAutoClickScript(channel)
-  InAppWebView(
-      url = cashierUrl,
-      modifier = modifier,
-      cookies = buildCcpayCookieHeader().split("; ").filter { it.trim().isNotEmpty() },
-      injectJsOnLoad = js,
-      onPageError = { msg ->
-        if (msg.contains("PAYDEBUG")) {
-          onDiagnose(msg.take(120))
-        }
-      },
-  )
-  LaunchedEffect(cashierUrl) {
-    kotlinx.coroutines.delay(4500)
-    onConsumed()
-  }
-}
-
-/** 构造注入 JS：轮询等待 Angular 挂载后自动点击目标支付方式。channel: wx / ali。 */
-private fun buildAutoClickScript(channel: String): String {
-  val target =
-      if (channel == "ali") "支付宝" else "微信"
-  val classKw = if (channel == "ali") "ali" else "wx,weixin"
-  return """
-    (function(){
-      var target='$target';
-      var classKw='$classKw';
-      function isTarget(e){
-        try{
-          if(!e) return false;
-          var t=(e.textContent||'').trim();
-          var c=(e.className&&e.className.toString) ? e.className.toString() : '';
-          var lowT=t.toLowerCase(), lowC=c.toLowerCase();
-          if(lowT.indexOf(target.toLowerCase())>=0) return true;
-          var parts=classKw.split(',');
-          for(var i=0;i<parts.length;i++){ if(lowC.indexOf(parts[i])>=0) return true; }
-        }catch(err){}
-        return false;
-      }
-      function clickAll(){
-        var els=[];
-        document.querySelectorAll('li,div,span,button,a,[class]').forEach(function(e){
-          if(isTarget(e)) els.push(e);
-        });
-        if(els.length>0){
-          els.slice(0,5).forEach(function(e){
-            try{
-              e.click();
-              ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(type){
-                try{ e.dispatchEvent(new MouseEvent(type,{bubbles:true,cancelable:true,view:window})); }catch(err){}
-              });
-            }catch(err){}
-          });
-          console.error('PAYDEBUG auto-clicked '+els.length+' for '+target);
-          return true;
-        }
-        return false;
-      }
-      var tries=0;
-      var timer=setInterval(function(){
-        tries++;
-        var done=clickAll();
-        if(done){ clearInterval(timer); }
-        else if(tries>=12){ clearInterval(timer); alert('PAYDEBUG 未能自动定位支付方式'); }
-      }, 600);
-      setTimeout(function(){ clearInterval(timer); }, 10000);
-    })();
-  """.trimIndent()
-}
-
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

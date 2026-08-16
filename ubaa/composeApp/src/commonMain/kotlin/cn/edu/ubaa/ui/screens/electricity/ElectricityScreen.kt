@@ -1,20 +1,24 @@
 package cn.edu.ubaa.ui.screens.electricity
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import cn.edu.ubaa.ui.component.SchemeTriggerWebView
 
 /** 电费购电原生 UI（无状态）。 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -32,51 +36,81 @@ fun ElectricityScreen(
     onHistoryRemove: (String) -> Unit,
     onQueryMeter: () -> Unit,
     onPowerChange: (String) -> Unit,
-    onSubmitPay: () -> Unit,
-    onContinuePendingPay: () -> Unit,
+    onSubmitPay: (ElectricityPayWay) -> Unit,
+    onContinuePendingPay: (ElectricityPayWay) -> Unit,
     onCancelPendingPay: () -> Unit,
-    onDismissPayUrl: () -> Unit,
-    onOpenPayUrl: (String) -> Unit,
+    onClearPendingPay: () -> Unit,
     onRetryTree: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   var selectedTab by remember { mutableIntStateOf(0) }
 
-  Column(modifier = modifier.fillMaxSize()) {
-    TabRow(selectedTabIndex = selectedTab) {
-      Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("电表查询") })
-      Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("电费缴费") })
+  val cashierUrl = uiState.pendingCashierUrl
+  val channel = uiState.pendingChannel
+  var payStatus by remember(cashierUrl) { mutableStateOf<String?>(if (cashierUrl != null) "正在拉起支付..." else null) }
+  // 与校园卡一致的隐藏 WebView：加载真实收银台页并注入 JS 自动点支付渠道，唤起支付 App。
+  if (cashierUrl != null) {
+    SchemeTriggerWebView(
+        cashierUrl = cashierUrl,
+        channel = channel ?: "wx",
+        onDiagnose = { msg -> payStatus = msg },
+        onConsumed = onClearPendingPay,
+    )
+  }
+
+  Box(modifier = modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize()) {
+      TabRow(selectedTabIndex = selectedTab) {
+        Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("电表查询") })
+        Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("电费缴费") })
+      }
+
+      when (selectedTab) {
+        0 ->
+            QueryPanel(
+                uiState = uiState,
+                onCampusSelect = onCampusSelect,
+                onBuildingSelect = onBuildingSelect,
+                onFloorSelect = onFloorSelect,
+                onRoomSelect = onRoomSelect,
+                onMeterSelect = onMeterSelect,
+                onUseMeterForPay = {
+                  selectedTab = 1
+                  onUseMeterForPay()
+                },
+                onRetry = onRetryTree,
+            )
+        1 ->
+            PayPanel(
+                uiState = uiState,
+                onMeterNumberChange = onMeterNumberChange,
+                onHistorySelect = onHistorySelect,
+                onHistoryRemove = onHistoryRemove,
+                onQueryMeter = onQueryMeter,
+                onPowerChange = onPowerChange,
+                onSubmitPay = onSubmitPay,
+                onContinuePendingPay = onContinuePendingPay,
+                onCancelPendingPay = onCancelPendingPay,
+            )
+      }
     }
 
-    when (selectedTab) {
-      0 ->
-          QueryPanel(
-              uiState = uiState,
-              onCampusSelect = onCampusSelect,
-              onBuildingSelect = onBuildingSelect,
-              onFloorSelect = onFloorSelect,
-              onRoomSelect = onRoomSelect,
-              onMeterSelect = onMeterSelect,
-              onUseMeterForPay = {
-                selectedTab = 1
-                onUseMeterForPay()
-              },
-              onRetry = onRetryTree,
-          )
-      1 ->
-          PayPanel(
-              uiState = uiState,
-              onMeterNumberChange = onMeterNumberChange,
-              onHistorySelect = onHistorySelect,
-              onHistoryRemove = onHistoryRemove,
-              onQueryMeter = onQueryMeter,
-              onPowerChange = onPowerChange,
-              onSubmitPay = onSubmitPay,
-              onContinuePendingPay = onContinuePendingPay,
-              onCancelPendingPay = onCancelPendingPay,
-              onDismissPayUrl = onDismissPayUrl,
-              onOpenPayUrl = onOpenPayUrl,
-          )
+    // 支付唤起状态/诊断提示
+    payStatus?.let { status ->
+      Card(
+          modifier = Modifier
+              .align(Alignment.TopCenter)
+              .fillMaxWidth()
+              .padding(top = 16.dp, start = 12.dp, end = 12.dp),
+          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+      ) {
+        Text(
+            text = status,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+      }
     }
   }
 }
@@ -233,12 +267,11 @@ private fun PayPanel(
     onHistoryRemove: (String) -> Unit,
     onQueryMeter: () -> Unit,
     onPowerChange: (String) -> Unit,
-    onSubmitPay: () -> Unit,
-    onContinuePendingPay: () -> Unit,
+    onSubmitPay: (ElectricityPayWay) -> Unit,
+    onContinuePendingPay: (ElectricityPayWay) -> Unit,
     onCancelPendingPay: () -> Unit,
-    onDismissPayUrl: () -> Unit,
-    onOpenPayUrl: (String) -> Unit,
 ) {
+  var selectedPayWay by remember { mutableStateOf<ElectricityPayWay?>(null) }
   Column(
       modifier =
           Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -316,8 +349,17 @@ private fun PayPanel(
                 color = MaterialTheme.colorScheme.error,
             )
             Text("流水号：${info.serial ?: ""}", style = MaterialTheme.typography.bodyMedium)
+            PayWaySelector(
+                payWays = uiState.payWays,
+                selectedPayWay = selectedPayWay,
+                onSelect = { selectedPayWay = it },
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-              Button(onClick = onContinuePendingPay, modifier = Modifier.weight(1f)) {
+              Button(
+                  onClick = { selectedPayWay?.let(onContinuePendingPay) },
+                  enabled = selectedPayWay != null && !uiState.isSubmitting,
+                  modifier = Modifier.weight(1f),
+              ) {
                 Text("继续支付")
               }
               OutlinedButton(onClick = onCancelPendingPay, modifier = Modifier.weight(1f)) {
@@ -349,9 +391,15 @@ private fun PayPanel(
           )
         }
 
+        PayWaySelector(
+            payWays = uiState.payWays,
+            selectedPayWay = selectedPayWay,
+            onSelect = { selectedPayWay = it },
+        )
+
         Button(
-            onClick = onSubmitPay,
-            enabled = !uiState.isSubmitting && (uiState.computedPower ?: 0) >= 1,
+            onClick = { selectedPayWay?.let(onSubmitPay) },
+            enabled = !uiState.isSubmitting && (uiState.computedPower ?: 0) >= 1 && selectedPayWay != null,
             modifier = Modifier.fillMaxWidth().height(48.dp),
         ) {
           if (uiState.isSubmitting) {
@@ -361,20 +409,6 @@ private fun PayPanel(
           }
         }
       }
-    }
-
-    uiState.payUrl?.let { url ->
-      AlertDialog(
-          onDismissRequest = onDismissPayUrl,
-          title = { Text("去支付") },
-          text = { Text("将跳转到校园支付平台完成付款。") },
-          confirmButton = {
-            TextButton(onClick = { onOpenPayUrl(url) }) { Text("打开支付页面") }
-          },
-          dismissButton = {
-            TextButton(onClick = onDismissPayUrl) { Text("取消") }
-          },
-      )
     }
   }
 }
@@ -399,6 +433,51 @@ private fun MeterInfoCard(info: ElectricityMeterInfo) {
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
+    }
+  }
+}
+
+/** 支付渠道选择器，与校园卡一致(微信/支付宝)。 */
+@Composable
+private fun PayWaySelector(
+    payWays: List<ElectricityPayWay>,
+    selectedPayWay: ElectricityPayWay?,
+    onSelect: (ElectricityPayWay) -> Unit,
+) {
+  if (payWays.isEmpty()) return
+  Column(
+      modifier = Modifier.fillMaxWidth(),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
+    Text(
+        "选择支付方式",
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    payWays.forEach { way ->
+      val selected = way.channel == selectedPayWay?.channel
+      Row(
+          modifier = Modifier
+              .fillMaxWidth()
+              .clip(MaterialTheme.shapes.small)
+              .background(
+                  if (selected) MaterialTheme.colorScheme.secondaryContainer
+                  else MaterialTheme.colorScheme.surfaceVariant
+              )
+              .clickable { onSelect(way) }
+              .padding(horizontal = 16.dp, vertical = 14.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.SpaceBetween,
+      ) {
+        Text(way.text, style = MaterialTheme.typography.bodyLarge)
+        if (selected) {
+          Icon(
+              Icons.Default.CheckCircle,
+              contentDescription = "已选择",
+              tint = MaterialTheme.colorScheme.primary,
+          )
+        }
+      }
     }
   }
 }

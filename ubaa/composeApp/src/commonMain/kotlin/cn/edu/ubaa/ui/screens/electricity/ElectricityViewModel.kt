@@ -2,6 +2,8 @@ package cn.edu.ubaa.ui.screens.electricity
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import cn.edu.ubaa.api.local.ensureCcpaySession
+import cn.edu.ubaa.api.local.extractCashierUrl
 import cn.edu.ubaa.api.storage.MeterNumberStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,11 +35,19 @@ data class ElectricityUiState(
     val computedMoney: Double? = null,
     val isSubmitting: Boolean = false,
     val payUrl: String? = null,
+    // ---- cc-pay 收银台支付(复用校园卡隐藏WebView自动唤起) ----
+    val pendingCashierUrl: String? = null,
+    val pendingChannel: String? = null,
+    val payWays: List<ElectricityPayWay> = emptyList(),
+    val isLoadingPayWays: Boolean = false,
     // ---- 公共 ----
     val error: String? = null,
 ) {
   val hasPendingOrder: Boolean get() = meterInfo?.payUrl != null
 }
+
+/** 电费可选的移动端支付渠道(与校园卡一致)。 */
+data class ElectricityPayWay(val id: String, val text: String, val channel: String)
 
 /** 电费购电 ViewModel。直连 shsd.buaa.edu.cn，不依赖 shared ApiFactory。 */
 class ElectricityViewModel(
@@ -49,6 +59,7 @@ class ElectricityViewModel(
   init {
     _state.value = _state.value.copy(meterHistory = MeterNumberStore.getAll())
     loadMeterTree()
+    loadPayWays()
   }
 
   fun clearError() {
@@ -161,6 +172,8 @@ class ElectricityViewModel(
             meterNumber = value,
             meterInfo = null,
             payUrl = null,
+            pendingCashierUrl = null,
+            pendingChannel = null,
             power = "",
             computedPower = null,
             computedMoney = null,
@@ -232,8 +245,8 @@ class ElectricityViewModel(
         )
   }
 
-  /** 确认支付：创建订单，返回跳转地址。 */
-  fun submitPay() {
+  /** 确认支付：先建 cc-pay 会话，再创建订单，解析收银台地址交给隐藏 WebView 自动唤起。 */
+  fun submitPay(payWay: ElectricityPayWay? = null) {
     val s = _state.value
     val info = s.meterInfo ?: return
     val writePower = s.computedPower ?: s.power.toIntOrNull()
@@ -242,30 +255,77 @@ class ElectricityViewModel(
       return
     }
 
-    _state.value = s.copy(isSubmitting = true, error = null)
+    _state.value = s.copy(isSubmitting = true, error = null, pendingCashierUrl = null, pendingChannel = null)
     viewModelScope.launch {
-      runCatching { api.submitPay(info.id, writePower) }
-          .onSuccess { result ->
-            when (result) {
-              is ElectricityPayResult.Success ->
-                  _state.value =
-                      _state.value.copy(isSubmitting = false, payUrl = result.payUrl)
-              is ElectricityPayResult.Failure ->
-                  _state.value = _state.value.copy(isSubmitting = false, error = result.message)
-            }
+      runCatching {
+        // 1. 建立 cc-pay 会话(复用校园卡同一套 CAS SSO)，避免跳出去重新登录
+        ensureCcpaySession()
+        // 2. 下单，拿到原始 payUrl(pass.cc-pay.cn/login?backUrl=...cashier?id=xxx)
+        when (val result = api.submitPay(info.id, writePower)) {
+          is ElectricityPayResult.Success -> {
+            // 3. 解析真正的收银台地址
+            val cashierUrl = extractCashierUrl(result.payUrl) ?: result.payUrl
+            cashierUrl to (payWay?.channel ?: "wx")
           }
-          .onFailure { e ->
-            _state.value =
-                _state.value.copy(isSubmitting = false, error = e.message ?: "下单失败，请稍后重试")
-          }
+          is ElectricityPayResult.Failure -> throw ElectricityException(result.message)
+        }
+      }.onSuccess { (cashierUrl, channel) ->
+        _state.value =
+            _state.value.copy(
+                isSubmitting = false,
+                pendingCashierUrl = cashierUrl,
+                pendingChannel = channel,
+                error = if (cashierUrl.isBlank()) "未获取到收银台地址" else null,
+            )
+      }.onFailure { e ->
+        _state.value =
+            _state.value.copy(isSubmitting = false, error = e.message ?: "下单失败，请稍后重试")
+      }
     }
   }
 
+  /** 加载电费可选的移动支付渠道(与校园卡一致的微信/支付宝)。 */
+  fun loadPayWays() {
+    if (_state.value.isLoadingPayWays) return
+    _state.value = _state.value.copy(isLoadingPayWays = true)
+    _state.value =
+        _state.value.copy(
+            isLoadingPayWays = false,
+            payWays =
+                listOf(
+                    ElectricityPayWay("wx", "微信支付", "wx"),
+                    ElectricityPayWay("ali", "支付宝", "ali"),
+                ),
+        )
+  }
+
+  /** 清理隐藏 WebView 支付状态(支付已处理完成)。 */
+  fun clearPendingPay() {
+    _state.value = _state.value.copy(pendingCashierUrl = null, pendingChannel = null)
+  }
+
   /** 继续支付未完成订单。 */
-  fun continuePendingPay() {
+  fun continuePendingPay(payWay: ElectricityPayWay? = null) {
     val url = _state.value.meterInfo?.payUrl
-    if (url != null) {
-      _state.value = _state.value.copy(payUrl = url)
+    if (url == null) return
+    _state.value = _state.value.copy(isSubmitting = true, error = null, pendingCashierUrl = null, pendingChannel = null)
+    viewModelScope.launch {
+      runCatching {
+        // 建立 cc-pay 会话 + 解析收银台地址
+        ensureCcpaySession()
+        extractCashierUrl(url) ?: url
+      }.onSuccess { cashierUrl ->
+        _state.value =
+            _state.value.copy(
+                isSubmitting = false,
+                pendingCashierUrl = cashierUrl,
+                pendingChannel = payWay?.channel ?: "wx",
+                error = if (cashierUrl.isBlank()) "未获取到收银台地址" else null,
+            )
+      }.onFailure { e ->
+        _state.value =
+            _state.value.copy(isSubmitting = false, error = e.message ?: "继续支付失败，请稍后重试")
+      }
     }
   }
 
@@ -287,7 +347,7 @@ class ElectricityViewModel(
 
   /** 支付完成 / 返回后刷新。 */
   fun dismissPayUrl() {
-    _state.value = _state.value.copy(payUrl = null)
+    _state.value = _state.value.copy(payUrl = null, pendingCashierUrl = null, pendingChannel = null)
     queryMeter()
   }
 
