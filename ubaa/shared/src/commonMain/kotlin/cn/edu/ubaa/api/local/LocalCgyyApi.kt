@@ -37,6 +37,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
@@ -299,6 +300,7 @@ internal class LocalCgyyApiBackend(
           siteTelephone = raw["siteTelephone"]?.jsonPrimitive?.contentOrNull,
           openStartDate = raw["openStartDate"]?.jsonPrimitive?.contentOrNull,
           openEndDate = raw["openEndDate"]?.jsonPrimitive?.contentOrNull,
+          isSupportReservation = raw["isSupportReservation"]?.jsonPrimitive?.booleanOrNull,
       )
 
   private fun mapDayInfo(
@@ -916,6 +918,18 @@ private class LocalCgyyClient(
             put("siteName", JsonPrimitive(site["siteName"]?.jsonPrimitive?.contentOrNull.orEmpty()))
             put("venueName", JsonPrimitive(venueName))
             put("campusName", JsonPrimitive(site["campusName"]?.jsonPrimitive?.contentOrNull.orEmpty()))
+            // 保留"是否支持预约"标记（用于原生过滤掉不可订场的场馆）
+            val isSupportRaw = site["isSupportReservation"]
+            val isSupport =
+                when {
+                  isSupportRaw == null -> null
+                  isSupportRaw.jsonPrimitive.isString ->
+                      isSupportRaw.jsonPrimitive.content in setOf("1", "true", "True")
+                  else -> isSupportRaw.jsonPrimitive.booleanOrNull
+                }
+            if (isSupport != null) {
+              put("isSupportReservation", JsonPrimitive(isSupport))
+            }
           }
         }
     )

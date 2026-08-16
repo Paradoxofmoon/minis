@@ -50,6 +50,7 @@ import cn.edu.ubaa.ui.screens.cgyy.CgyyLockCodeScreen
 import cn.edu.ubaa.ui.screens.cgyy.CgyyOrdersScreen
 import cn.edu.ubaa.ui.screens.cgyy.CgyyReserveFormScreen
 import cn.edu.ubaa.ui.screens.cgyy.CgyyReservePickerScreen
+import cn.edu.ubaa.ui.screens.cgyy.CgyyWebViewReserveScreen
 import cn.edu.ubaa.ui.screens.classroom.ClassroomQueryScreen
 import cn.edu.ubaa.ui.screens.classroom.ClassroomViewModel
 import cn.edu.ubaa.ui.screens.evaluation.EvaluationScreen
@@ -111,6 +112,7 @@ enum class AppScreen {
   CGYY_RESERVE_FORM,
   CGYY_ORDERS,
   CGYY_LOCK_CODE,
+  CGYY_WEBVIEW_RESERVE,
   CLASSROOM_QUERY,
   EVALUATION,
   SPOC_ASSIGNMENTS,
@@ -466,6 +468,7 @@ fun MainAppScreen(
               AppScreen.CGYY_RESERVE_FORM,
               AppScreen.CGYY_ORDERS,
               AppScreen.CGYY_LOCK_CODE,
+              AppScreen.CGYY_WEBVIEW_RESERVE,
               AppScreen.EVALUATION,
               AppScreen.YGDK_HOME,
               AppScreen.YGDK_FORM -> BottomNavTab.ADVANCED
@@ -753,6 +756,7 @@ fun MainAppScreen(
         AppScreen.CGYY_RESERVE_FORM -> "填写预约信息"
         AppScreen.CGYY_ORDERS -> "我的预约"
         AppScreen.CGYY_LOCK_CODE -> "查看密码"
+        AppScreen.CGYY_WEBVIEW_RESERVE -> "网页预约场馆"
         AppScreen.CLASSROOM_QUERY -> "空教室查询"
         AppScreen.EVALUATION -> "自动评教"
         AppScreen.SPOC_ASSIGNMENTS -> "SPOC作业"
@@ -1006,6 +1010,7 @@ fun MainAppScreen(
                     navigateTo(AppScreen.CGYY_ORDERS)
                   },
                   onLockCodeClick = { navigateTo(AppScreen.CGYY_LOCK_CODE) },
+                  onWebReserveClick = { navigateTo(AppScreen.CGYY_WEBVIEW_RESERVE) },
               )
           AppScreen.CGYY_RESERVE_PICKER ->
               cgyyViewModel?.let {
@@ -1024,6 +1029,7 @@ fun MainAppScreen(
               }
           AppScreen.CGYY_ORDERS -> cgyyViewModel?.let { CgyyOrdersScreen(viewModel = it) }
           AppScreen.CGYY_LOCK_CODE -> cgyyViewModel?.let { CgyyLockCodeScreen(viewModel = it) }
+          AppScreen.CGYY_WEBVIEW_RESERVE -> CgyyWebViewReserveScreen(onBackClick = { navigateBack() })
           AppScreen.EVALUATION -> evaluationViewModel?.let { EvaluationScreen(viewModel = it) }
           AppScreen.YGDK_HOME ->
               ygdkViewModel?.let {

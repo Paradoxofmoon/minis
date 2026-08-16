@@ -103,7 +103,7 @@ class CgyyViewModel(
       val sitesResult = cgyyApi.getVenueSites()
       val purposeTypesResult = cgyyApi.getPurposeTypes()
 
-      val sites = sitesResult.getOrNull().orEmpty()
+      val sites = sitesResult.getOrNull().orEmpty().filterReservable()
       val purposeTypes = purposeTypesResult.getOrNull().orEmpty()
       val currentPurposeType = _uiState.value.purposeType
       val siteId = _uiState.value.selectedSiteId ?: sites.firstOrNull()?.id
@@ -535,3 +535,7 @@ class CgyyViewModel(
     )
   }
 }
+
+/** 仅保留支持预约的场馆（isSupportReservation 为 null 或 true；丢弃明确 false 的）。 */
+private fun List<CgyyVenueSiteDto>.filterReservable(): List<CgyyVenueSiteDto> =
+    filter { it.isSupportReservation != false }

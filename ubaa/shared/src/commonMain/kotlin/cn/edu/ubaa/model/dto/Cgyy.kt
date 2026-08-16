@@ -20,6 +20,7 @@ data class CgyyVenueSiteDto(
     val siteTelephone: String? = null,
     val openStartDate: String? = null,
     val openEndDate: String? = null,
+    val isSupportReservation: Boolean? = null,
 )
 
 @Serializable data class CgyyPurposeTypeDto(val key: Int, val name: String)

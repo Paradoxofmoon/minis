@@ -170,6 +170,40 @@ fun buildCcpayCookieHeader(): String {
   return parts.distinct().joinToString("; ")
 }
 
+/**
+ * 供 composeApp 的场馆(buaa cgyy) WebView 使用：从当前登录会话的 cookie 持久层提取
+ * cgyy 预约相关域的 SSO cookie，返回 `(注入域名URL, "name=value")` 列表，
+ * 用于向 WebView 按域注入登录态，使其免重登。
+ */
+fun buildBuaaEduCnDomainCookies(): List<Pair<String, String>> {
+  val mode = ConnectionRuntime.currentMode()?.takeIf { it != ConnectionMode.SERVER_RELAY } ?: ConnectionMode.DIRECT
+  val records = LocalCookieStore.load(mode)
+  val result = mutableListOf<Pair<String, String>>()
+  // 注入目标：cgyy 站点域 + sso 登录域（WebView 实际会访问这俩，cookie 按域名落）
+  val cgyyTarget = "https://cgyy.buaa.edu.cn"
+  val ssoTarget = "https://sso.buaa.edu.cn"
+  for (record in records) {
+    val cookie = record.cookie
+    val domain = (cookie.domain ?: "").lowercase().trimStart('.')
+    val name = cookie.name
+    val value = cookie.value
+    if (name.isBlank() || value.isBlank()) continue
+    val target =
+        when {
+          // sso_buaa_token 等由 SSO 签发
+          domain.startsWith("sso") || name.contains("sso") -> ssoTarget
+          // 其他 buaa 父域 cookie（_zte 系列）注入 cgyy 站点
+          domain.endsWith("buaa.edu.cn") -> cgyyTarget
+          else -> null
+        }
+    if (target != null) {
+      result += target to "$name=$value"
+    }
+  }
+  // 去重（同 注入域名+name）
+  return result.distinctBy { it.first + "|" + it.second.substringBefore("=") }
+}
+
 
 internal class PersistentLocalCookieStorage(private val mode: ConnectionMode) : CookiesStorage {
   private val mutex = Mutex()
