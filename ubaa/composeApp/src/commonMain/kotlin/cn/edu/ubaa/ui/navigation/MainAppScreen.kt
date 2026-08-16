@@ -1055,6 +1055,7 @@ fun MainAppScreen(
                     isLoadingMore = mailUiState.isLoadingMore,
                     hasMore = mailUiState.hasMore,
                     error = mailUiState.error,
+                    diagnostic = mailUiState.diagnostic,
                     onRefresh = { it.refresh() },
                     onLoadMore = { it.loadMore() },
                 )

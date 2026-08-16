@@ -16,6 +16,7 @@ data class MailUiState(
     val hasMore: Boolean = false,
     val total: Long = 0,
     val error: String? = null,
+    val diagnostic: String = "",
     val lastRefresh: Long = 0L,
 )
 
@@ -40,6 +41,9 @@ class MailViewModel : ViewModel() {
     if (_state.value.isLoading) return
     _state.value = _state.value.copy(isLoading = true, error = null)
     viewModelScope.launch {
+      // 诊断（临时定位sid问题）
+      val diag = MailRepository.diagnose()
+      _state.value = _state.value.copy(diagnostic = diag)
       MailRepository.listMessages(start = 0, limit = PAGE_SIZE, fid = 1)
           .onSuccess { page ->
             _state.value = _state.value.copy(

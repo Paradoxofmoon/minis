@@ -71,6 +71,36 @@ object MailRepository {
   }
 
   /**
+   * 邮箱会话诊断（临时，用于定位"未获取到sid"问题）。
+   * 访问收件箱入口，返回 HTTP 状态、响应里是否有 Set-Cookie: Coremail.sid、以及 jar 里的 Coremail cookie 状况。
+   */
+  suspend fun diagnose(): String {
+    val sb = StringBuilder()
+    try {
+      val mode = currentMode()
+      val client = LocalUpstreamClientProvider.shared()
+      sb.appendLine("mode=$mode")
+      val resp = client.get(localUpstreamUrl(INDEX_URL)) {
+        header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+      }
+      sb.appendLine("index.status=${resp.status.value}")
+      // 响应头里是否有 Set-Cookie: Coremail.sid
+      val setCookies = resp.headers["Set-Cookie"] ?: resp.headers.getAll("Set-Cookie")?.joinToString(" | ")
+      sb.appendLine("setcookie=$setCookies")
+      // 现在 jar 里 Coremail 相关 cookie
+      val records = LocalCookieStore.load(mode)
+      val coremail = records.filter { "Coremail" in it.cookie.name || it.cookie.domain?.contains("mail.buaa") == true }
+      sb.appendLine("jarCoremailCount=${coremail.size}")
+      for (c in coremail) sb.appendLine("  ${c.cookie.name}=${c.cookie.value.take(10)}...[${c.cookie.domain}]")
+      val zte = records.map { it.cookie.name }.filter { it == "_zte_cid_" || it == "CASTGC" || it == "_zte_sid_" }
+      sb.appendLine("ssoInJar=" + zte.distinct().joinToString(","))
+    } catch (e: Exception) {
+      sb.appendLine("EXCEPTION: ${e.message}")
+    }
+    return sb.toString()
+  }
+
+  /**
    * 确保持有有效 Coremail.sid。优先复用 cookie jar 里已有的 sid（不额外网络访问）；
    * 仅当 jar 里无 sid 时才访问收件箱入口换取一次。
    * @return 当前 sid；非空表示会话可用。

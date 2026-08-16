@@ -27,6 +27,7 @@ import cn.edu.ubaa.api.local.MailRepository
  * @param isLoadingMore 是否正在加载下一页。
  * @param hasMore 是否还有更多邮件未加载。
  * @param error 错误信息（非空时展示）。
+ * @param diagnostic 会话诊断信息（临时定位用）。
  * @param onRefresh 点击刷新触发上层重新拉取。
  * @param onLoadMore 滚动到底/点击"加载更多"触发。
  */
@@ -37,6 +38,7 @@ fun MailScreen(
     isLoadingMore: Boolean,
     hasMore: Boolean,
     error: String?,
+    diagnostic: String,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     modifier: Modifier = Modifier,
@@ -60,10 +62,25 @@ fun MailScreen(
     } else if (messages.isEmpty() && error != null) {
       // 加载失败
       Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
           Text("邮箱加载失败", style = MaterialTheme.typography.titleMedium)
           Spacer(Modifier.height(8.dp))
           Text(error, style = MaterialTheme.typography.bodySmall)
+          if (diagnostic.isNotBlank()) {
+            Spacer(Modifier.height(12.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                shape = MaterialTheme.shapes.small,
+                tonalElevation = 1.dp,
+            ) {
+              Text(
+                  diagnostic,
+                  style = MaterialTheme.typography.bodySmall,
+                  modifier = Modifier.padding(10.dp),
+                  maxLines = 30,
+              )
+            }
+          }
           Spacer(Modifier.height(16.dp))
           Button(onClick = onRefresh) { Text("重试") }
         }
