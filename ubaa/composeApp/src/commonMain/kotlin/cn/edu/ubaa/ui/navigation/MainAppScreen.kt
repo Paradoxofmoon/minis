@@ -782,7 +782,10 @@ fun MainAppScreen(
     Column(modifier = Modifier.fillMaxSize()) {
       val isRootScreen =
           currentScreen in listOf(AppScreen.HOME, AppScreen.REGULAR, AppScreen.ADVANCED)
-      val showGlobalTopBar = currentScreen != AppScreen.SCHEDULE
+      // 全屏网页屏不显示全局 AppTopBar（避免与 WebView 自带返回键重叠、并让网页全屏展示）
+      val hideGlobalTopBar =
+          currentScreen == AppScreen.SCHEDULE || currentScreen == AppScreen.CGYY_WEBVIEW_RESERVE
+      val showGlobalTopBar = !hideGlobalTopBar
       if (showGlobalTopBar) {
         AppTopBar(
             title = screenTitle,
