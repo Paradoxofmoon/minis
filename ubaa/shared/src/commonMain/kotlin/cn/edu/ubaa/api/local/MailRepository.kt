@@ -78,21 +78,26 @@ object MailRepository {
   private suspend fun ensureSession(): Result<String> {
     val have = currentSid()
     if (!have.isNullOrBlank()) return Result.success(have)
-    return try {
-      val client = LocalUpstreamClientProvider.shared()
-      // 仅缺失 sid 时访问一次收件箱入口触发 Coremail 种 sid
-      client.get(localUpstreamUrl(INDEX_URL)) {
-        header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+    val client = LocalUpstreamClientProvider.shared()
+    // 缺失 sid 时访问收件箱入口换取。Coremail 可能首次返回500后才种 sid，故轮询重试几次。
+    var sid = ""
+    for (attempt in 1..3) {
+      try {
+        client.get(localUpstreamUrl(INDEX_URL)) {
+          header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        }
+        sid = currentSid().orEmpty()
+        if (sid.isNotBlank()) break
+        kotlinx.coroutines.delay(250L)
+      } catch (e: Exception) {
+        platformLog("MAIL", "ensureSession 尝试$attempt 失败: ${e.message}")
+        kotlinx.coroutines.delay(250L)
       }
-      val sid = currentSid()
-      if (sid.isNullOrBlank()) {
-        Result.failure(ApiCallException("未获取到邮箱会话(sid)，请重新登录", HttpStatusCode.Unauthorized, "mail_error"))
-      } else {
-        Result.success(sid)
-      }
-    } catch (e: Exception) {
-      platformLog("MAIL", "邮箱会话获取失败: ${e.message}")
-      Result.failure(ApiCallException("邮箱会话获取失败: ${e.message}", HttpStatusCode.BadGateway, "mail_error"))
+    }
+    return if (sid.isNotBlank()) {
+      Result.success(sid)
+    } else {
+      Result.failure(ApiCallException("未获取到邮箱会话(sid)，请重新登录", HttpStatusCode.Unauthorized, "mail_error"))
     }
   }
 
