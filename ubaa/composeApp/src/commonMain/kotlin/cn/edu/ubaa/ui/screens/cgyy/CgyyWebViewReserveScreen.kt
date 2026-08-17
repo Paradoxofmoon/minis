@@ -1,7 +1,9 @@
 package cn.edu.ubaa.ui.screens.cgyy
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -49,6 +51,7 @@ fun CgyyWebViewReserveScreen(
   val reserveUrl = "https://cgyy.buaa.edu.cn/venue/mobileReservation"
   var preparing by remember { mutableStateOf(true) }
   var error by remember { mutableStateOf<String?>(null) }
+  var webError by remember { mutableStateOf<String?>(null) }
 
   // 先确保 cgyy 体育会话建立（登录会种 sso_buaa_token 等 cookie），再注入 WebView。
   var ssoCookies by remember { mutableStateOf(buildBuaaEduCnDomainCookies()) }
@@ -86,7 +89,10 @@ fun CgyyWebViewReserveScreen(
           }
         }
         error != null -> {
-          Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+          Box(
+              Modifier.fillMaxSize().padding(16.dp),
+              contentAlignment = Alignment.Center,
+          ) {
             Text(
                 error ?: "",
                 color = MaterialTheme.colorScheme.error,
@@ -95,15 +101,31 @@ fun CgyyWebViewReserveScreen(
           }
         }
         else -> {
-          InAppWebView(
-              url = reserveUrl,
-              modifier = Modifier.fillMaxSize(),
-              domainCookies = ssoCookies,
-              // cgyy 移动版 SPA 需移动 Chrome UA + viewport 适配才能正常渲染（否则空白）
-              userAgentOverride = mobileChromeUserAgent,
-              enableMobileViewport = true,
-              onPageError = { /* 诊断日志，可扩展提示 */ },
-          )
+          Column(modifier = Modifier.fillMaxSize()) {
+            // 诊断横幅：显示 WebView 内 JS/加载错误，帮助定位白屏
+            webError?.let { e ->
+              androidx.compose.material3.Surface(
+                  color = MaterialTheme.colorScheme.errorContainer,
+                  modifier = Modifier.fillMaxWidth(),
+              ) {
+                Text(
+                    "⚠ $e",
+                    modifier = Modifier.padding(8.dp),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+              }
+            }
+            InAppWebView(
+                url = reserveUrl,
+                modifier = Modifier.weight(1f),
+                domainCookies = ssoCookies,
+                // cgyy 移动版 SPA 需移动 Chrome UA + viewport 适配才能正常渲染（否则空白）
+                userAgentOverride = mobileChromeUserAgent,
+                enableMobileViewport = true,
+                onPageError = { webError = it },
+            )
+          }
         }
       }
     }
