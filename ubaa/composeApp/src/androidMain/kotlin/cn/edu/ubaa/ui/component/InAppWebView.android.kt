@@ -70,8 +70,15 @@ actual fun InAppWebView(
                     object : android.webkit.WebChromeClient() {
                       override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
                         val msg = "${message.message()} (${message.lineNumber()})"
+                        // 只上报真正 ERROR 级或 PAYDEBUG 诊断消息。
+                        // 注意：SPA 页面常有无害 console 消息（本地打印服务 CLodop 探测 localhost 失败、
+                        // 可选资源 404 等），宽松匹配会导致 onPageError 频繁触发 → 状态更新 → 重组 → 页面被反复重载。
                         if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR ||
-                            msg.contains("PAYDEBUG") || msg.contains("error") || msg.contains("Error") || msg.contains("undefined")) {
+                            msg.contains("PAYDEBUG")) {
+                          // 忽略 localhost 探测失败（CLodop 打印控件未安装属正常情况）
+                          if (msg.contains("localhost") || msg.contains("127.0.0.1")) {
+                            return super.onConsoleMessage(message)
+                          }
                           onPageError?.invoke(msg.take(300))
                         }
                         return super.onConsoleMessage(message)
@@ -95,9 +102,14 @@ actual fun InAppWebView(
                           request: WebResourceRequest,
                           error: android.webkit.WebResourceError,
                       ) {
-                        if (request.url.toString().contains("bundle.js") ||
-                            request.url.toString().contains(".js")) {
-                          onPageError?.invoke("加载JS失败: ${error.errorCode} ${error.description} ${request.url}")
+                        val target = request.url.toString()
+                        // 忽略本地打印服务探测失败（CLodop localhost 脚本，未安装属正常）
+                        if (target.contains("localhost") || target.contains("127.0.0.1")) {
+                          return
+                        }
+                        // 资源级错误（非主框架）不打断页面，只上报诊断
+                        if (target.contains("bundle.js") || target.contains(".js")) {
+                          onPageError?.invoke("加载JS失败: ${error.errorCode} ${error.description} $target")
                         }
                       }
 
@@ -126,20 +138,23 @@ actual fun InAppWebView(
                         }
                       }
                     }
-                if (!htmlContent.isNullOrBlank()) {
-                  // 提供 htmlContent 时，仅加载 HTML（用于触发自定义 scheme），不加载 url
-                  loadDataWithBaseURL(url, htmlContent, "text/html; charset=utf-8", "UTF-8", null)
-                } else {
-                  loadUrl(url)
-                }
+                // 注意：不在此处加载页面——由下方 update 回调统一加载（首次组合后必被调用一次），
+                // 避免 factory 加载 + update 首次调用造成双重加载、打断 SPA 渲染。
             }
         },
         modifier = modifier,
         update = { view ->
-          if (!htmlContent.isNullOrBlank()) {
-            view.loadDataWithBaseURL(url, htmlContent, "text/html; charset=utf-8", "UTF-8", null)
-          } else {
-            view.loadUrl(url)
+          // 关键：仅当目标加载内容变化时才重新加载，避免 Compose 重组（如 onPageError 更新的错误横幅、
+          // 父级状态变化）导致 WebView 反复重载整个页面——这会中断 SPA 渲染，表现为主框架"闪标题后空白"。
+          val targetContent = if (htmlContent.isNullOrBlank()) url else "html:" + htmlContent
+          val loadedContent = view.getTag() as? String
+          if (loadedContent != targetContent) {
+            view.setTag(targetContent)
+            if (!htmlContent.isNullOrBlank()) {
+              view.loadDataWithBaseURL(url, htmlContent, "text/html; charset=utf-8", "UTF-8", null)
+            } else {
+              view.loadUrl(url)
+            }
           }
         },
     )
