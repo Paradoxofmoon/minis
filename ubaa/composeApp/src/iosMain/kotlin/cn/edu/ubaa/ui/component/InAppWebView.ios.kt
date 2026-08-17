@@ -16,6 +16,8 @@ actual fun InAppWebView(
     onSchemeUrl: ((String) -> Boolean)?,
     onPageError: ((String) -> Unit)?,
     htmlContent: String?,
+    userAgentOverride: String?,
+    enableMobileViewport: Boolean,
 ) {
     LaunchedEffect(url) {
         val nsUrl = NSURL.URLWithString(url) ?: return@LaunchedEffect

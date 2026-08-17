@@ -18,6 +18,8 @@ actual fun InAppWebView(
     onSchemeUrl: ((String) -> Boolean)?,
     onPageError: ((String) -> Unit)?,
     htmlContent: String?,
+    userAgentOverride: String?,
+    enableMobileViewport: Boolean,
 ) {
     val uriHandler = LocalUriHandler.current
     Column(

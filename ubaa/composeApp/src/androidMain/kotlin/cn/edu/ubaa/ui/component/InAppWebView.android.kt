@@ -20,6 +20,8 @@ actual fun InAppWebView(
     onSchemeUrl: ((String) -> Boolean)?,
     onPageError: ((String) -> Unit)?,
     htmlContent: String?,
+    userAgentOverride: String?,
+    enableMobileViewport: Boolean,
 ) {
     AndroidView(
         factory = { context ->
@@ -32,7 +34,15 @@ actual fun InAppWebView(
                 runCatching {
                   android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                 }
-                // 不覆盖 UA：让收银台页按真实 Android WebView 环境正常渲染（避免支付方式图标/文字空白）。
+                // 移动版 SPA（如 cgyy 场馆预约）需要覆盖为移动 Chrome UA + 视口适配才能正常渲染。
+                if (!userAgentOverride.isNullOrBlank()) {
+                  settings.userAgentString = userAgentOverride
+                }
+                if (enableMobileViewport) {
+                  settings.useWideViewPort = true
+                  settings.loadWithOverviewMode = true
+                }
+                // 不覆盖 UA（默认）让收银台页按真实 Android WebView 环境正常渲染（避免支付方式图标/文字空白）。
                 // 微信支付唤起依赖网页 JS location.href 触发 weixin://，与 UA 无关。
 
                 fun applyCookies() {

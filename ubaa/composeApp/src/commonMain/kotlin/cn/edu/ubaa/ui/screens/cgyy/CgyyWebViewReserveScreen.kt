@@ -26,6 +26,10 @@ import cn.edu.ubaa.api.feature.SportVenueApi
 import cn.edu.ubaa.api.local.buildBuaaEduCnDomainCookies
 import cn.edu.ubaa.ui.component.InAppWebView
 
+/** cgyy 移动预约页按 UA 区分版本；用移动 Chrome UA 让 SPA 走移动端渲染（否则 WebView 空白）。 */
+private const val mobileChromeUserAgent =
+    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36"
+
 /**
  * 体育场馆网页预约屏（方案 A1）。
  *
@@ -95,6 +99,9 @@ fun CgyyWebViewReserveScreen(
               url = reserveUrl,
               modifier = Modifier.fillMaxSize(),
               domainCookies = ssoCookies,
+              // cgyy 移动版 SPA 需移动 Chrome UA + viewport 适配才能正常渲染（否则空白）
+              userAgentOverride = mobileChromeUserAgent,
+              enableMobileViewport = true,
               onPageError = { /* 诊断日志，可扩展提示 */ },
           )
         }
