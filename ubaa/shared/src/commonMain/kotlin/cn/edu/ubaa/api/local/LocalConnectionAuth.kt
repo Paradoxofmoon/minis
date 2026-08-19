@@ -179,25 +179,21 @@ fun buildBuaaEduCnDomainCookies(): List<Pair<String, String>> {
   val mode = ConnectionRuntime.currentMode()?.takeIf { it != ConnectionMode.SERVER_RELAY } ?: ConnectionMode.DIRECT
   val records = LocalCookieStore.load(mode)
   val result = mutableListOf<Pair<String, String>>()
-  // 注入目标：cgyy 站点域 + sso 登录域（WebView 实际会访问这俩，cookie 按域名落）
+  // 注入目标：cgyy 站点域（WebView 实际加载 https://cgyy.buaa.edu.cn/venue/mobileReservation）
+  // 关键：cgyy 页面靠 cookie 里的 sso_buaa_token 判断登录态，必须落在 cgyy.buaa.edu.cn 域上，
+  //       否则 WebView 收不到 token → 判定未登录 → 重定向到 SSO 登录页（表现为"闪标题后空白"）。
   val cgyyTarget = "https://cgyy.buaa.edu.cn"
-  val ssoTarget = "https://sso.buaa.edu.cn"
   for (record in records) {
     val cookie = record.cookie
     val domain = (cookie.domain ?: "").lowercase().trimStart('.')
     val name = cookie.name
     val value = cookie.value
     if (name.isBlank() || value.isBlank()) continue
-    val target =
-        when {
-          // sso_buaa_token 等由 SSO 签发
-          domain.startsWith("sso") || name.contains("sso") -> ssoTarget
-          // 其他 buaa 父域 cookie（_zte 系列）注入 cgyy 站点
-          domain.endsWith("buaa.edu.cn") -> cgyyTarget
-          else -> null
-        }
-    if (target != null) {
-      result += target to "$name=$value"
+    // cgyy 登录态相关的 buaa 会话 cookie（sso_buaa_token / sso_buaa_zhjs_token / _zte_* 等）
+    // 一律注入 cgyy 站点域。注意不要按 name 含 "sso" 就把 token 塞到 sso.buaa.edu.cn——
+    // 那是发 token 的登录域，不是 WebView 的目标域，会导致 token 永远到不了 cgyy 页面。
+    if (domain.endsWith("buaa.edu.cn") || name.startsWith("sso_")) {
+      result += cgyyTarget to "$name=$value"
     }
   }
   // 去重（同 注入域名+name）
