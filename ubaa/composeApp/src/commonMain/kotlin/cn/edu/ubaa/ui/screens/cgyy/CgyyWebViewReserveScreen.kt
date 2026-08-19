@@ -40,7 +40,7 @@ private const val mobileChromeUserAgent =
  * body 文本长度、appMethod 等），App 侧 onConsoleMessage 捕获 PAYDEBUG 后显示在诊断横幅，
  * 用于定位 WebView 内页面渲染到哪一步（尤其是「只闪标题就空白」的场景）。
  */
-private const val cgyyDiagnosticsJs =
+private val cgyyDiagnosticsJs =
     """
     (function(){
       function report(tag, data){
