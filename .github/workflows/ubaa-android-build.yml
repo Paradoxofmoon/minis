@@ -51,7 +51,7 @@ jobs:
         working-directory: ubaa
 
       - name: Build Release APK
-        run: ./gradlew :androidApp:assembleRelease --stacktrace --no-daemon
+        run: ./gradlew :androidApp:assembleRelease :androidApp:assembleDebug --stacktrace --no-daemon
         working-directory: ubaa
 
       - name: Upload Release APK
@@ -61,7 +61,7 @@ jobs:
           path: ubaa/androidApp/build/outputs/apk/release/*.apk
           retention-days: 14
 
-      - name: Upload Debug APK (fallback, unsigned)
+      - name: Upload Debug APK (unsigned, for WebContentsDebugging/chrome://inspect debugging)
         if: always()
         uses: actions/upload-artifact@v4
         with:

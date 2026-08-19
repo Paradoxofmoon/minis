@@ -2,6 +2,7 @@ package cn.edu.ubaa
 
 import android.content.pm.ApplicationInfo
 import android.os.Bundle
+import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -14,9 +15,13 @@ class MainActivity : ComponentActivity() {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
 
-    // release 构建(不可调试)关闭调试日志，提升性能与隐私
+    // 允许通过 chrome://inspect 远程调试 WebView（定位 cgyy 等 SPA 白屏的关键手段）。
+    // 仅对可调试构建开启，避免正式发布包暴露调试能力。
     val isDebuggable =
         (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    if (isDebuggable) {
+      runCatching { WebView.setWebContentsDebuggingEnabled(true) }
+    }
     LogConfig.enabled = isDebuggable
 
     setContent { App() }

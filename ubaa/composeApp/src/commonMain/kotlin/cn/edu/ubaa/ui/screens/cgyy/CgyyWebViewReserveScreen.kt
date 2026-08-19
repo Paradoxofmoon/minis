@@ -34,6 +34,51 @@ private const val mobileChromeUserAgent =
     "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36"
 
 /**
+ * 页面加载后注入的「页面内部状态报告」脚本。
+ *
+ * 周期性通过 console.error('PAYDEBUG ...') 上报页面关键状态（挂载点、document.title、
+ * body 文本长度、appMethod 等），App 侧 onConsoleMessage 捕获 PAYDEBUG 后显示在诊断横幅，
+ * 用于定位 WebView 内页面渲染到哪一步（尤其是「只闪标题就空白」的场景）。
+ */
+private const val cgyyDiagnosticsJs =
+    """
+    (function(){
+      function report(tag, data){
+        try { console.error('PAYDEBUG ' + tag + ' ' + JSON.stringify(data)); } catch(e) {}
+      }
+      var checks = 0;
+      var timer = setInterval(function(){
+        checks++;
+        try {
+          var chingo = document.getElementById('chingo');
+          var nav = document.querySelector('.cgNavigation');
+          var body = document.body;
+          report('st', {
+            t: document.title,
+            rs: document.readyState,
+            ch: chingo ? chingo.children.length : 'absent',
+            bl: body ? body.innerText.length : -1,
+            bs: body ? (body.innerText || '').slice(0, 50) : '',
+            nav: nav ? (nav.innerText || '').slice(0, 30) : 'no-nav',
+            am: typeof window.appMethod,
+            ap: typeof window.app
+          });
+        } catch(e) {
+          report('err', String(e));
+        }
+        if (checks >= 6) clearInterval(timer);
+      }, 1000);
+      // 捕获未处理的 JS 异常
+      window.addEventListener('error', function(e){
+        report('jserr', String(e.message) + ' @' + e.filename + ':' + e.lineno);
+      });
+      window.addEventListener('unhandledrejection', function(e){
+        report('rej', String(e.reason && e.reason.message || e.reason));
+      });
+    })();
+    """.trimIndent()
+
+/**
  * 体育场馆网页预约屏（方案 A1）。
  *
  * 先静默触发一次运动场(cgyy venue-server)登录，把 `sso_buaa_token` + cgyy 会话
@@ -125,6 +170,7 @@ fun CgyyWebViewReserveScreen(
                 userAgentOverride = mobileChromeUserAgent,
                 enableMobileViewport = true,
                 onPageError = { webError = it },
+                injectJsOnLoad = cgyyDiagnosticsJs,
             )
           }
         }
